@@ -1,0 +1,2285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2D2D2D">
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22MMD%20Viewer%22%2C%22short_name%22%3A%22MMD%22%2C%22start_url%22%3A%22.%22%2C%22scope%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22orientation%22%3A%22any%22%2C%22background_color%22%3A%22%232D2D2D%22%2C%22theme_color%22%3A%22%232D2D2D%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAMAAAADACAIAAADdvvtQAAABYElEQVR42u3SMQ0AAAzDsBIqf3qlMGmvDSFKCg%2BRAANhIAyEgcBAGAgDYSAwEAbCQBgIDISBMBAGAgNhIAyEgTAQGAgDYSAMBAbCQBgIA4GBMBAGwkBgIAyEgTAQBgIDYSAMhIHAQBgIA2EgMBAGwkAYCAyEgTAQBgIDYSAMhIEwEBgIA2EgDAQGwkAYCAOBgTAQBsJAYCAMhIEwEAYCA2EgDISBwEAYCANhIDAQBsJAGAgMhIEwEAbCQGAgDISBMBAYCANhIAwEBsJAGAgDgYEwEAbCQGAgDISBMBAGAgNhIAyEgcBAGAgDYSAwEAbCQBgIDISBMBAGwkBgIAyEgTAQGAgDYSAMBAbCQBgIA4GBMBAGwkAYCAyEgTAQBgIDYSAMhIHAQBgIA2EgMBAGwkAYCAyEgTAQBsJAYCAMhIEwEBgIA2EgDAQGwkAYCAOBgTAQBsJAGAgMhIEwEAaCqwGp4vRmQMZGvAAAAABJRU5ErkJggg%3D%3D%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fpng%22%2C%22purpose%22%3A%22any%20maskable%22%7D%5D%7D">
+<title>MMD Viewer</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
+    "@yohawing/three-mmd-loader/three": "https://cdn.jsdelivr.net/npm/@yohawing/three-mmd-loader@0.3.0/dist/three/index.js",
+    "@yohawing/three-mmd-loader/physics": "https://cdn.jsdelivr.net/npm/@yohawing/three-mmd-loader@0.3.0/dist/physics/index.js",
+    "@yohawing/three-mmd-loader/runtime": "https://cdn.jsdelivr.net/npm/@yohawing/three-mmd-loader@0.3.0/dist/runtime/index.js",
+    "@yohawing/three-mmd-loader/parser": "https://cdn.jsdelivr.net/npm/@yohawing/three-mmd-loader@0.3.0/dist/parser/index.js"
+  }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+var __decodeBmpMod=(()=>{var w=(f,t)=>()=>{try{return t||f((t={exports:{}}).exports,t),t.exports}catch(r){throw t=0,r}};var A=w((L,y)=>{y.exports=function(t){if(t instanceof Int8Array||t instanceof Uint8Array||t instanceof Uint8ClampedArray)return new DataView(t.buffer,t.byteOffset,t.byteLength);if(t instanceof ArrayBuffer)return new DataView(t);throw new TypeError("Expected `data` to be an ArrayBuffer, Buffer, Int8Array, Uint8Array or Uint8ClampedArray")}});var U=w((G,b)=>{b.exports=ImageData});var O=w((R,h)=>{var B=A(),C=U();function z(f){let t=f%4;return t?f+4-t:f}var g=class{constructor(t,r,{width:i,height:u,colorDepth:e,format:s}){if(this.format=s,this.offset=r,this.depth=e,this.stride=z(i*this.depth/8),this.size=this.stride*u,this.data=t.slice(this.offset,this.offset+this.size),this.size!==this.data.byteLength)throw new Error("Truncated bitmap data")}get(t,r,i){let u=this.format.indexOf(i);if(this.depth===1){let e=this.data[r*this.stride+(t/8|0)],s=1<<7-t%8*1;return(e&s)>>7-t%8*1}if(this.depth===2){let e=this.data[r*this.stride+(t/4|0)],s=3<<6-t%4*2;return(e&s)>>>6-t%4*2}if(this.depth===4){let e=this.data[r*this.stride+(t/2|0)],s=15<<4-t%2*4;return(e&s)>>>4-t%2*4}return this.data[r*this.stride+t*(this.depth/8)+u]}};function x(f,{width:t,height:r,colorDepth:i,icon:u}){if(i!==32&&i!==24)throw new Error(`A color depth of ${i} is not supported`);let e=new g(f,0,{width:t,height:r,colorDepth:i,format:"BGRA"}),s=i===24&&u?new g(f,e.offset+e.size,{width:t,height:r,colorDepth:1,format:"A"}):null,a=new Uint8Array(t*r*4),c=0;for(let n=0;n<r;n++)for(let o=0;o<t;o++)a[c++]=e.get(o,r-n-1,"R"),a[c++]=e.get(o,r-n-1,"G"),a[c++]=e.get(o,r-n-1,"B"),i===32?a[c++]=e.get(o,r-n-1,"A"):a[c++]=s&&s.get(o,r-n-1,"A")?0:255;return new Uint8ClampedArray(a.buffer,a.byteOffset,a.byteLength)}function E(f,{width:t,height:r,colorDepth:i,colorCount:u,icon:e}){if(i!==8&&i!==4&&i!==2&&i!==1)throw new Error(`A color depth of ${i} is not supported`);let s=new g(f,0,{width:u,height:1,colorDepth:32,format:"BGRA"}),a=new g(f,s.offset+s.size,{width:t,height:r,colorDepth:i,format:"C"}),c=e?new g(f,a.offset+a.size,{width:t,height:r,colorDepth:1,format:"A"}):null,n=new Uint8Array(t*r*4),o=0;for(let d=0;d<r;d++)for(let l=0;l<t;l++){let m=a.get(l,r-d-1,"C");n[o++]=s.get(m,0,"R"),n[o++]=s.get(m,0,"G"),n[o++]=s.get(m,0,"B"),n[o++]=c&&c.get(l,r-d-1,"A")?0:255}return new Uint8ClampedArray(n.buffer,n.byteOffset,n.byteLength)}function I(f){if(f!==19778)throw new Error(`Invalid magic byte 0x${f.toString(16)}`)}h.exports=function(t,{width:r=0,height:i=0,icon:u=!1}={}){let e=B(t),s,a,c,n,o;u?(s=e.getUint32(0,!0),a=e.getUint32(4,!0)/1|0,c=e.getUint32(8,!0)/2|0,n=e.getUint16(14,!0),o=e.getUint32(32,!0)):(I(e.getUint16(0,!0)),s=14+e.getUint32(14,!0),a=e.getUint32(18,!0),c=e.getUint32(22,!0),n=e.getUint16(28,!0),o=e.getUint32(46,!0)),o===0&&n<=8&&(o=1<<n);let d=a===0?r:a,l=c===0?i:c,m=new Uint8Array(e.buffer,e.byteOffset+s,e.byteLength-s),p=o?E(m,{width:d,height:l,colorDepth:n,colorCount:o,icon:u}):x(m,{width:d,height:l,colorDepth:n,icon:u});return Object.assign(new C(p,d,l),{colorDepth:n})}});return O();})();
+window.decodeBmp = __decodeBmpMod;
+</script>
+<style>
+  :root {
+    --stage: #2D2D2D;
+    --panel: #16191f;
+    --line: #555;
+    --text: #fff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--stage);
+    color: var(--text);
+    font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; }
+  button, input, select { font: inherit; color: var(--text); }
+  button { cursor: pointer; }
+  #toggle, .menuToggle, #fullscreen {
+    position: fixed;
+    top: 12px;
+    z-index: 30;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #toggle { left: 12px; }
+  .menuToggle {
+    font-size: 12px;
+    font-weight: 700;
+  }
+  #viewToggle { left: 64px; width: 56px; }
+  #playbackToggle { left: 124px; width: 76px; }
+  #physicsToggle { left: 204px; width: 72px; }
+  #fullscreen { right: 12px; }
+  #bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 15;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-radius: 0;
+    background: var(--panel);
+  }
+  #play {
+    height: 32px;
+    padding: 0 12px;
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--stage);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  #frame {
+    width: 70px;
+    height: 30px;
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--stage);
+    color: var(--text);
+    font-size: 13px;
+    text-align: center;
+    outline: none;
+  }
+  #seek {
+    flex: 1 1 auto;
+    min-width: 30px;
+    accent-color: var(--text);
+  }
+  #frameTotal {
+    min-width: 42px;
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--text);
+  }
+  #fps {
+    position: fixed;
+    right: 8px;
+    bottom: 58px;
+    z-index: 16;
+    min-width: 38px;
+    padding: 2px 4px;
+    border: 1px solid var(--line);
+    background: rgba(0,0,0,.35);
+    color: var(--text);
+    font-size: 10px;
+    line-height: 1.2;
+    text-align: right;
+  }
+  button:disabled, input:disabled, select:disabled { opacity: .45; cursor: default; }
+  input[type="file"] { display: none; }
+  #panel {
+    position: fixed;
+    z-index: 25;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 78vh;
+    overflow-y: auto;
+    background: var(--stage);
+    border-top: 1px solid var(--line);
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    transform: translateY(100%);
+    transition: transform .18s linear;
+  }
+  #panel.open { transform: translateY(0); }
+  #settingsPanel {
+    position: fixed;
+    z-index: 25;
+    top: 68px;
+    left: 12px;
+    width: min(340px, calc(100vw - 24px));
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    background: var(--stage);
+    border: 1px solid var(--line);
+    padding: 16px;
+    transform: translateX(-110%);
+    transition: transform .18s linear;
+  }
+  #settingsPanel.open { transform: translateX(0); }
+  .brand { margin: 0 0 16px; }
+  .brand b {
+    font-size: 17px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .field { margin-bottom: 14px; }
+  .field > i {
+    display: block;
+    font-style: normal;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .pick { display: flex; align-items: center; gap: 10px; }
+  button.file, button.act {
+    min-height: 42px;
+    padding: 0 16px;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .actions { display: flex; gap: 10px; }
+  button.act { flex: 1; height: 48px; font-size: 15px; }
+  select {
+    width: 100%;
+    height: 40px;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--panel);
+    color: var(--text);
+    outline: none;
+    padding: 0 8px;
+  }
+  input[type="number"] {
+    border: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--panel);
+    color: var(--text);
+    outline: none;
+  }
+  input[type="color"] {
+    width: 100%;
+    height: 36px;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--panel);
+    color: var(--text);
+    outline: none;
+    padding: 0;
+  }
+  .pick select {
+    width: auto;
+    min-width: 96px;
+  }
+  .qualityBlock {
+    display: grid;
+    gap: 8px;
+  }
+  .menuPage { display: none; }
+  .menuPage.active { display: block; }
+  .settingRow {
+    display: grid;
+    grid-template-columns: minmax(110px, 150px) minmax(150px, 1fr);
+    gap: 8px;
+    align-items: center;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .settingRow select,
+  .settingRow input[type="number"] {
+    width: 100%;
+    height: 36px;
+  }
+  .settingRow input[type="number"] {
+    padding: 0 8px;
+  }
+  .rangeNumber {
+    display: grid;
+    grid-template-columns: minmax(90px, 1fr) 72px;
+    gap: 8px;
+    align-items: center;
+  }
+  .rangeNumber input[type="range"] {
+    width: 100%;
+    accent-color: var(--text);
+  }
+  .list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .item {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 12px;
+  }
+  .item.selected { outline: 1px solid var(--text); }
+  .name {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 6px 10px;
+    color: var(--text);
+  }
+  button.name {
+    border: 0;
+    border-right: 1px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+    text-align: left;
+  }
+  button.remove {
+    width: 30px;
+    min-height: 30px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-weight: 700;
+  }
+  .opts {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin: 6px 0 16px;
+    flex-wrap: wrap;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .check input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--text);
+  }
+  #status {
+    margin-top: 14px;
+    min-height: 18px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <button id="toggle" aria-label="panel">≡</button>
+  <button id="viewToggle" class="menuToggle" aria-label="view">View</button>
+  <button id="playbackToggle" class="menuToggle" aria-label="playback">Playback</button>
+  <button id="physicsToggle" class="menuToggle" aria-label="physics">Physics</button>
+  <button id="fullscreen" aria-label="fullscreen">⛶</button>
+
+  <div id="bar">
+    <button id="play" disabled>Play</button>
+    <input id="frame" type="number" min="0" value="0" disabled>
+    <input id="seek" type="range" min="0" max="0" value="0" step="1" disabled>
+    <span id="frameTotal">/ 0</span>
+  </div>
+  <div id="fps">0 fps</div>
+
+  <section id="panel" class="open">
+    <div class="brand"><b>MMD Viewer</b></div>
+
+    <div class="field">
+      <i>Folder</i>
+      <div class="pick">
+        <button class="file" id="folderBtn">Allow Import</button>
+        <button class="file" id="fileBtn">Folder</button>
+        <button class="file" id="zipBtn">Zip</button>
+      </div>
+      <input id="fileInput" type="file" accept=".pmx,.vmd,.mp3,.wav,.png,.jpg,.jpeg,.bmp,.tga,.gif,.dds,.sph,.spa,.tif,.tiff" multiple webkitdirectory>
+      <input id="zipInput" type="file" accept=".zip">
+      <div class="list" id="folderList"></div>
+    </div>
+
+    <div class="field">
+      <i>Model [pmx]</i>
+      <select id="modelSelect" disabled></select>
+      <div class="list" id="modelList"></div>
+    </div>
+
+    <div class="field">
+      <i>Animation [vmd]</i>
+      <div class="list" id="motionList"></div>
+    </div>
+
+    <div class="field">
+      <i>Camera [vmd]</i>
+      <div class="list" id="cameraList"></div>
+    </div>
+
+    <div class="field">
+      <i>Audio [mp3, wav]</i>
+      <div class="list" id="audioList"></div>
+    </div>
+
+    <div class="actions">
+      <button id="load" class="act">Load</button>
+      <button id="studioSave" class="act">Save</button>
+      <button id="studioRestore" class="act">Restore</button>
+      <button id="reset" class="act" disabled>Reset</button>
+    </div>
+
+    <div id="status"></div>
+  </section>
+
+  <section id="settingsPanel">
+    <div id="viewMenu" class="menuPage active">
+      <div class="brand"><b>View</b></div>
+
+      <div class="field">
+        <i>View</i>
+        <div class="qualityBlock">
+          <label class="settingRow">
+            <span>Shadow</span>
+            <select id="shadowMode">
+              <option value="on">On</option>
+              <option value="off" selected>Off</option>
+            </select>
+          </label>
+          <label class="settingRow">
+            <span>Floor</span>
+            <select id="floorMode">
+              <option value="on" selected>On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <label class="settingRow">
+            <span>Background</span>
+            <input id="backgroundColor" type="color" value="#2D2D2D">
+          </label>
+          <label class="settingRow">
+            <span>FPS</span>
+            <select id="fpsMode">
+              <option value="on" selected>On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
+        <i>Quality</i>
+        <div class="qualityBlock">
+          <label class="settingRow">
+            <span>Pixel ratio</span>
+            <select id="pixelRatio">
+              <option value="1">1.0</option>
+              <option value="1.5">1.5</option>
+              <option value="2">2.0</option>
+              <option value="device" selected>Device</option>
+            </select>
+          </label>
+          <label class="settingRow">
+            <span>Antialias</span>
+            <select id="antialiasMode">
+              <option value="on" selected>On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <label class="settingRow">
+            <span>Ambient light</span>
+            <span class="rangeNumber">
+              <input id="ambientLightLevelRange" type="range" min="0" max="2" step="0.05" value="0.15">
+              <input id="ambientLightLevel" type="number" min="0" max="2" step="0.05" value="0.15">
+            </span>
+          </label>
+          <label class="settingRow">
+            <span>Directional light</span>
+            <span class="rangeNumber">
+              <input id="directionalLightLevelRange" type="range" min="0" max="2" step="0.05" value="1.0">
+              <input id="directionalLightLevel" type="number" min="0" max="2" step="0.05" value="1.0">
+            </span>
+          </label>
+          <label class="settingRow">
+            <span>Exposure</span>
+            <span class="rangeNumber">
+              <input id="exposureLevelRange" type="range" min="0.1" max="2" step="0.05" value="1.0">
+              <input id="exposureLevel" type="number" min="0.1" max="2" step="0.05" value="1.0">
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div id="playbackMenu" class="menuPage">
+      <div class="brand"><b>Playback</b></div>
+
+      <div class="field">
+        <i>Playback</i>
+        <div class="qualityBlock">
+          <label class="settingRow">
+            <span>Speed</span>
+            <span class="rangeNumber">
+              <input id="playbackSpeedRange" type="range" min="0.1" max="10" step="0.1" value="1">
+              <input id="playbackSpeed" type="number" min="0.1" max="10" step="0.1" value="1">
+            </span>
+          </label>
+          <label class="settingRow">
+            <span>Volume</span>
+            <span class="rangeNumber">
+              <input id="audioVolumeRange" type="range" min="0" max="1" step="0.1" value="1">
+              <input id="audioVolume" type="number" min="0" max="1" step="0.1" value="1">
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div id="physicsMenu" class="menuPage">
+      <div class="brand"><b>Physics</b></div>
+
+      <div class="field">
+        <i>Physics</i>
+        <div class="qualityBlock">
+          <label class="settingRow">
+            <span>Mode</span>
+            <select id="physicsMode">
+              <option value="on" selected>On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <label class="settingRow">
+            <span>Rigid body</span>
+            <select id="rigidBodyMode">
+              <option value="off" selected>Off</option>
+              <option value="on">On</option>
+            </select>
+          </label>
+          <label class="settingRow">
+            <span>Reset</span>
+            <button id="physicsReset" class="file" type="button">Reset</button>
+          </label>
+          <label class="settingRow">
+            <span>Gravity X</span>
+            <span class="rangeNumber">
+              <input id="gravityXRange" type="range" min="-200" max="200" step="1" value="0">
+              <input id="gravityX" type="number" min="-200" max="200" step="1" value="0">
+            </span>
+          </label>
+          <label class="settingRow">
+            <span>Gravity Y</span>
+            <span class="rangeNumber">
+              <input id="gravityYRange" type="range" min="-200" max="200" step="1" value="-98">
+              <input id="gravityY" type="number" min="-200" max="200" step="1" value="-98">
+            </span>
+          </label>
+          <label class="settingRow">
+            <span>Gravity Z</span>
+            <span class="rangeNumber">
+              <input id="gravityZRange" type="range" min="-200" max="200" step="1" value="0">
+              <input id="gravityZ" type="number" min="-200" max="200" step="1" value="0">
+            </span>
+          </label>
+          <label class="settingRow">
+            <span>Step</span>
+            <span class="rangeNumber">
+              <input id="physicsStepRange" type="range" min="0.005" max="0.033" step="0.001" value="0.015">
+              <input id="physicsStep" type="number" min="0.005" max="0.033" step="0.001" value="0.015">
+            </span>
+          </label>
+          <label class="settingRow">
+            <span>Max step</span>
+            <span class="rangeNumber">
+              <input id="physicsMaxStepRange" type="range" min="1" max="10" step="1" value="3">
+              <input id="physicsMaxStep" type="number" min="1" max="10" step="1" value="3">
+            </span>
+          </label>
+          <label class="settingRow">
+            <span>IK</span>
+            <select id="ikMode">
+              <option value="on" selected>On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { DDSLoader } from "three/addons/loaders/DDSLoader.js";
+import { ThreeMmdLoader, createMmdTextureMapFromFiles, syncMmdSpecularDirection, applyMmdCameraStateToThreeCamera } from "@yohawing/three-mmd-loader/three";
+import { createCustomBulletMmdPhysicsBackend, createDisabledMmdPhysicsBackend, loadCustomBulletMmdModule } from "@yohawing/three-mmd-loader/physics";
+import { sampleMmdCameraTrackInto } from "@yohawing/three-mmd-loader/runtime";
+import { parsePmxMetadata } from "@yohawing/three-mmd-loader/parser";
+
+let scene, camera, renderer, controls, listener, clock, manager;
+let mmdLoader = null, currentMmdModel = null, currentMmdAnimation = null, currentCameraMotion = null;
+let activePhysicsBackend = null, customBulletMmdModule = null;
+let ambientLight, directionalLight, gridHelper, shadowPlane, rigidBodyHelper;
+let mesh = null, audio = null;
+let ready = false, playing = false, cameraActive = false;
+let duration = 0, currentTime = 0, draggingSeek = false, needsRender = true;
+let physicsTemporarilyDisabled = false;
+
+let filePathMap = {};
+let fileBaseMap = {};
+let runtimeUrls = [];
+let missingTex = {};
+let folderName = '';
+let allowedFolderHandle = null;
+let folderFiles = [];
+let modelEntries = [];
+let motionEntries = [];
+let cameraEntries = [];
+let audioEntries = [];
+let selectedModelIndex = -1;
+let requiredTex = [];
+let loadingStatusTimer = null;
+let loadingStatusStep = 0;
+let fpsSampleTime = 0;
+let fpsSampleFrames = 0;
+
+const FPS = 30;
+const STUDIO_DB_NAME = 'mmd-viewer-studio';
+const STUDIO_DB_VERSION = 1;
+const STUDIO_STORE = 'studio';
+const STUDIO_KEY = 'current';
+const BLANK_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const BLACK_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==';
+const el = function (id) { return document.getElementById(id); };
+const statusEl = el('status');
+
+function renderLoadingStatus() {
+  const marks = ['\\', '-', '/'];
+  statusEl.textContent = 'Loading...' + marks[loadingStatusStep % marks.length];
+  loadingStatusStep++;
+}
+
+function setStatus(text) {
+  if (text === 'Loading') {
+    if (!loadingStatusTimer) {
+      loadingStatusStep = 0;
+      renderLoadingStatus();
+      loadingStatusTimer = setInterval(renderLoadingStatus, 160);
+    }
+    return;
+  }
+  if (loadingStatusTimer) {
+    clearInterval(loadingStatusTimer);
+    loadingStatusTimer = null;
+  }
+  statusEl.textContent = 'Ready';
+}
+
+function requestRender() {
+  needsRender = true;
+}
+
+function extOk(name, exts) {
+  const n = name.toLowerCase();
+  for (let i = 0; i < exts.length; i++) if (n.endsWith(exts[i])) return true;
+  return false;
+}
+
+function isImageName(name) {
+  return extOk(name, ['.png', '.jpg', '.jpeg', '.bmp', '.tga', '.gif', '.dds', '.sph', '.spa', '.tif', '.tiff']);
+}
+
+function baseOf(name) {
+  const n = String(name).replace(/\\/g, '/');
+  return n.substring(n.lastIndexOf('/') + 1).trim();
+}
+
+function stripExt(name) {
+  const b = baseOf(name);
+  const p = b.lastIndexOf('.');
+  return p > 0 ? b.substring(0, p) : b;
+}
+
+function normPath(p) {
+  const s = String(p).replace(/\\/g, '/');
+  const parts = s.split('/');
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    const seg = parts[i].trim();
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') { out.pop(); continue; }
+    out.push(seg);
+  }
+  return out.join('/').toLowerCase();
+}
+
+function dirOf(name) {
+  const n = normPath(name);
+  const p = n.lastIndexOf('/');
+  return p < 0 ? '' : n.substring(0, p);
+}
+
+function joinPath(a, b) {
+  if (!a) return normPath(b);
+  if (!b) return normPath(a);
+  return normPath(a + '/' + b);
+}
+
+function normName(name) {
+  return String(name || '').replace(/\u0000/g, '').replace(/\s+/g, '').toLowerCase();
+}
+
+function isDefaultToonName(name) {
+  return /^toon(0[1-9]|10)\.bmp$/i.test(baseOf(name));
+}
+
+function pushUnique(list, value) {
+  if (!value) return;
+  for (let i = 0; i < list.length; i++) if (list[i] === value) return;
+  list.push(value);
+}
+
+function makeItem(label, onSelect, onRemove, selected) {
+  const item = document.createElement('span');
+  item.className = selected ? 'item selected' : 'item';
+  const name = document.createElement(onSelect ? 'button' : 'span');
+  name.className = 'name';
+  name.textContent = label;
+  if (onSelect) name.addEventListener('click', onSelect);
+  item.appendChild(name);
+  if (onRemove) {
+    const remove = document.createElement('button');
+    remove.className = 'remove';
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.addEventListener('click', onRemove);
+    item.appendChild(remove);
+  }
+  return item;
+}
+
+function clearBox(id) {
+  el(id).innerHTML = '';
+}
+
+function selectedModel() {
+  return selectedModelIndex >= 0 ? modelEntries[selectedModelIndex] : null;
+}
+
+function renderFolder() {
+  const box = el('folderList');
+  box.innerHTML = '';
+  if (!folderName) return;
+  box.appendChild(makeItem(folderName, null, function () {
+    resetDetected();
+    clearScene();
+    revoke(runtimeUrls);
+    renderAll();
+    setStatus('');
+  }, false));
+}
+
+function renderModelSelect() {
+  const select = el('modelSelect');
+  select.innerHTML = '';
+  select.disabled = modelEntries.length === 0;
+  for (let i = 0; i < modelEntries.length; i++) {
+    const option = document.createElement('option');
+    option.value = String(i);
+    option.textContent = modelEntries[i].name;
+    select.appendChild(option);
+  }
+  if (selectedModelIndex >= 0 && selectedModelIndex < modelEntries.length) select.value = String(selectedModelIndex);
+}
+
+function renderModels() {
+  renderModelSelect();
+  const box = el('modelList');
+  box.innerHTML = '';
+  for (let i = 0; i < modelEntries.length; i++) {
+    box.appendChild(makeItem(modelEntries[i].name, function () {
+      selectModel(i);
+    }, function () {
+      removeEntry(modelEntries, i);
+      if (selectedModelIndex >= modelEntries.length) selectedModelIndex = modelEntries.length - 1;
+      if (modelEntries.length === 0) selectedModelIndex = -1;
+      updateRequiredTextures().then(function () {
+        clearScene();
+        revoke(runtimeUrls);
+        renderAll();
+      });
+    }, i === selectedModelIndex));
+  }
+}
+
+function modelKeys(entry) {
+  if (!entry || !entry.keys) return [];
+  return entry.keys;
+}
+
+function motionMatchesSelected(entry) {
+  const model = selectedModel();
+  if (!model) return true;
+  if (!entry.modelKey) return true;
+  const keys = modelKeys(model);
+  if (keys.length === 0) return true;
+  for (let i = 0; i < keys.length; i++) if (keys[i] === entry.modelKey) return true;
+  return false;
+}
+
+function selectedMotions() {
+  const matched = [];
+  const unmatched = [];
+  for (let i = 0; i < motionEntries.length; i++) {
+    if (motionMatchesSelected(motionEntries[i])) matched.push(motionEntries[i]);
+    else unmatched.push(motionEntries[i]);
+  }
+  return matched.concat(unmatched);
+}
+
+function renderMotions() {
+  const box = el('motionList');
+  box.innerHTML = '';
+  const entries = selectedMotions();
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    box.appendChild(makeItem(entry.name, null, function () {
+      const idx = motionEntries.indexOf(entry);
+      if (idx >= 0) removeEntry(motionEntries, idx);
+      clearScene();
+      revoke(runtimeUrls);
+      renderMotions();
+    }, false));
+  }
+}
+
+function renderCameras() {
+  const box = el('cameraList');
+  box.innerHTML = '';
+  for (let i = 0; i < cameraEntries.length; i++) {
+    box.appendChild(makeItem(cameraEntries[i].name, null, function () {
+      removeEntry(cameraEntries, i);
+      clearScene();
+      revoke(runtimeUrls);
+      renderCameras();
+    }, false));
+  }
+}
+
+function renderAudios() {
+  const box = el('audioList');
+  box.innerHTML = '';
+  for (let i = 0; i < audioEntries.length; i++) {
+    box.appendChild(makeItem(audioEntries[i].name, null, function () {
+      removeEntry(audioEntries, i);
+      clearScene();
+      revoke(runtimeUrls);
+      renderAudios();
+    }, false));
+  }
+}
+
+function renderAll() {
+  renderFolder();
+  renderModels();
+  renderMotions();
+  renderCameras();
+  renderAudios();
+  updateResetButton();
+}
+
+function updateResetButton() {
+  el('reset').disabled = folderFiles.length === 0 && !ready;
+}
+
+function removeEntry(list, index) {
+  const entry = list[index];
+  list.splice(index, 1);
+  if (entry) {
+    const sourceIndex = folderFiles.indexOf(entry);
+    if (sourceIndex >= 0) folderFiles.splice(sourceIndex, 1);
+    buildFileMaps(folderFiles);
+  }
+}
+
+function openStudioDb() {
+  return new Promise(function (resolve, reject) {
+    if (!window.indexedDB) { reject(new Error('IndexedDB is not available')); return; }
+    const request = indexedDB.open(STUDIO_DB_NAME, STUDIO_DB_VERSION);
+    request.onupgradeneeded = function () {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STUDIO_STORE)) db.createObjectStore(STUDIO_STORE);
+    };
+    request.onsuccess = function () { resolve(request.result); };
+    request.onerror = function () { reject(request.error || new Error('Failed to open IndexedDB')); };
+  });
+}
+
+function writeStudioRecord(record) {
+  return openStudioDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      const tx = db.transaction(STUDIO_STORE, 'readwrite');
+      const store = tx.objectStore(STUDIO_STORE);
+      store.put(record, STUDIO_KEY);
+      tx.oncomplete = function () { db.close(); resolve(); };
+      tx.onerror = function () { db.close(); reject(tx.error || new Error('Failed to save studio')); };
+      tx.onabort = function () { db.close(); reject(tx.error || new Error('Failed to save studio')); };
+    });
+  });
+}
+
+function readStudioRecord() {
+  return openStudioDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      const tx = db.transaction(STUDIO_STORE, 'readonly');
+      const store = tx.objectStore(STUDIO_STORE);
+      const request = store.get(STUDIO_KEY);
+      request.onsuccess = function () { resolve(request.result || null); };
+      tx.oncomplete = function () { db.close(); };
+      tx.onerror = function () { db.close(); reject(tx.error || new Error('Failed to restore studio')); };
+      tx.onabort = function () { db.close(); reject(tx.error || new Error('Failed to restore studio')); };
+    });
+  });
+}
+
+function studioEntryRecord(entry) {
+  return {
+    file: entry.file,
+    path: entry.path || entry.name || entry.file.name,
+    name: entry.name || entry.file.name
+  };
+}
+
+function studioEntryFromRecord(record) {
+  const file = record.file;
+  return {
+    file: file,
+    path: record.path || file.name,
+    name: record.name || file.name,
+    url: ''
+  };
+}
+
+function savedModelIndex(record) {
+  if (!record) return -1;
+  const path = normPath(record.selectedModelPath || '');
+  const name = record.selectedModelName || '';
+  for (let i = 0; i < modelEntries.length; i++) if (path && normPath(modelEntries[i].path) === path) return i;
+  for (let i = 0; i < modelEntries.length; i++) if (name && modelEntries[i].name === name) return i;
+  return modelEntries.length > 0 ? 0 : -1;
+}
+
+async function saveStudio() {
+  if (folderFiles.length === 0) {
+    statusEl.textContent = 'No files';
+    return;
+  }
+  const model = selectedModel();
+  const entries = [];
+  for (let i = 0; i < folderFiles.length; i++) entries.push(studioEntryRecord(folderFiles[i]));
+  const record = {
+    folderName: folderName || 'Studio',
+    selectedModelPath: model ? model.path : '',
+    selectedModelName: model ? model.name : '',
+    entries: entries
+  };
+  try {
+    await writeStudioRecord(record);
+    statusEl.textContent = 'Saved';
+  } catch (e) {
+    statusEl.textContent = 'Save failed';
+  }
+}
+
+async function restoreStudio() {
+  let record = null;
+  try {
+    record = await readStudioRecord();
+  } catch (e) {
+    statusEl.textContent = 'Restore failed';
+    return;
+  }
+  if (!record || !record.entries || record.entries.length === 0) {
+    statusEl.textContent = 'No save';
+    return;
+  }
+  clearScene();
+  revoke(runtimeUrls);
+  resetDetected();
+  folderName = record.folderName || 'Studio';
+  folderFiles = [];
+  for (let i = 0; i < record.entries.length; i++) {
+    const entry = studioEntryFromRecord(record.entries[i]);
+    if (entry.file) folderFiles.push(entry);
+  }
+  await inspectFolder(folderFiles);
+  selectedModelIndex = savedModelIndex(record);
+  await updateRequiredTextures();
+  renderAll();
+  statusEl.textContent = 'Restored';
+  requestRender();
+}
+
+function init() {
+  const stage = el('stage');
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(currentBackgroundColor());
+  gridHelper = new THREE.GridHelper(40, 20, 0x444444, 0x252525);
+  gridHelper.visible = floorEnabled();
+  scene.add(gridHelper);
+  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.5, 2000);
+  camera.position.set(0, 12, 32);
+  ambientLight = new THREE.AmbientLight(0xffffff, currentAmbientLight());
+  scene.add(ambientLight);
+  directionalLight = new THREE.DirectionalLight(0xffffff, currentDirectionalLight());
+  directionalLight.position.set(1, 1.4, 1);
+  directionalLight.castShadow = shadowEnabled();
+  directionalLight.shadow.mapSize.width = 2048;
+  directionalLight.shadow.mapSize.height = 2048;
+  directionalLight.shadow.camera.near = 0.5;
+  directionalLight.shadow.camera.far = 120;
+  directionalLight.shadow.camera.left = -40;
+  directionalLight.shadow.camera.right = 40;
+  directionalLight.shadow.camera.top = 40;
+  directionalLight.shadow.camera.bottom = -40;
+  scene.add(directionalLight);
+  scene.add(directionalLight.target);
+  shadowPlane = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ opacity: 0.25 }));
+  shadowPlane.rotation.x = -Math.PI / 2;
+  shadowPlane.position.y = 0;
+  shadowPlane.receiveShadow = true;
+  shadowPlane.visible = shadowEnabled();
+  scene.add(shadowPlane);
+  buildRenderer();
+  applyView();
+  listener = new THREE.AudioListener();
+  camera.add(listener);
+  manager = new THREE.LoadingManager();
+  manager.setURLModifier(resolveUrl);
+  clock = new THREE.Clock();
+  window.addEventListener('resize', onResize);
+}
+
+function currentPixelRatio() {
+  const select = el('pixelRatio');
+  const value = select ? select.value : '2';
+  if (value === 'device') return window.devicePixelRatio || 1;
+  const parsed = parseFloat(value);
+  return parsed > 0 ? parsed : 1;
+}
+
+function antialiasEnabled() {
+  const input = el('antialiasMode');
+  return input ? input.value === 'on' : true;
+}
+
+function selectedModeOn(id, fallback) {
+  const input = el(id);
+  if (!input) return fallback;
+  return input.value === 'on';
+}
+
+function shadowEnabled() {
+  return selectedModeOn('shadowMode', false);
+}
+
+function floorEnabled() {
+  return selectedModeOn('floorMode', true);
+}
+
+function fpsEnabled() {
+  return selectedModeOn('fpsMode', true);
+}
+
+function physicsModeEnabled() {
+  return selectedModeOn('physicsMode', true);
+}
+
+function rigidBodyEnabled() {
+  return selectedModeOn('rigidBodyMode', false);
+}
+
+function physicsAvailable() {
+  return true;
+}
+
+function effectivePhysicsEnabled() {
+  return physicsAvailable() && physicsModeEnabled() && !physicsTemporarilyDisabled;
+}
+
+function syncPhysicsEnabledOnly() {
+}
+
+function currentPlaybackSpeed() {
+  const input = el('playbackSpeed');
+  const value = input ? parseFloat(input.value) : 1;
+  if (value < 0.1) return 0.1;
+  if (value > 10) return 10;
+  return value > 0 ? value : 1;
+}
+
+function currentAudioPlaybackRate() {
+  return currentPlaybackSpeed();
+}
+
+function currentAudioVolume() {
+  const input = el('audioVolume');
+  const value = input ? parseFloat(input.value) : 1;
+  if (!Number.isFinite(value)) return 1;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+function applyAudioVolume() {
+  if (audio && audio.setVolume) audio.setVolume(currentAudioVolume());
+}
+
+function selectedNumber(id, fallback) {
+  const input = el(id);
+  const value = input ? parseFloat(input.value) : fallback;
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function selectedInteger(id, fallback) {
+  const value = Math.round(selectedNumber(id, fallback));
+  return value > 0 ? value : fallback;
+}
+
+function currentPhysicsParams() {
+  return {
+    unitStep: selectedNumber('physicsStep', 0.015),
+    maxStepNum: selectedInteger('physicsMaxStep', 3),
+    gravity: new THREE.Vector3(selectedNumber('gravityX', 0), selectedNumber('gravityY', -98), selectedNumber('gravityZ', 0))
+  };
+}
+
+function currentPhysicsBackendOptions() {
+  const params = currentPhysicsParams();
+  return {
+    fixedTimeStep: params.unitStep,
+    maxSubSteps: params.maxStepNum
+  };
+}
+
+function disposeActivePhysicsBackend() {
+  if (activePhysicsBackend && !activePhysicsBackend.disposed && activePhysicsBackend.dispose) activePhysicsBackend.dispose();
+  activePhysicsBackend = null;
+}
+
+async function createPhysicsBackendForCurrentSettings() {
+  disposeActivePhysicsBackend();
+  if (!physicsModeEnabled()) {
+    activePhysicsBackend = createDisabledMmdPhysicsBackend({ reason: 'Physics disabled.' });
+    return activePhysicsBackend;
+  }
+  try {
+    customBulletMmdModule = customBulletMmdModule || await loadCustomBulletMmdModule();
+    activePhysicsBackend = createCustomBulletMmdPhysicsBackend(customBulletMmdModule, currentPhysicsBackendOptions());
+  } catch (error) {
+    console.warn('[physics] Bullet MMD initialization failed.', error);
+    activePhysicsBackend = createDisabledMmdPhysicsBackend({ reason: 'Bullet MMD physics unavailable.' });
+  }
+  return activePhysicsBackend;
+}
+
+function applyPhysicsRuntime() {
+  requestRender();
+}
+
+function applyPhysicsMode() {
+  applyPhysicsRuntime();
+  updateRigidBodyHelper();
+  requestRender();
+}
+
+function applyIkMode() {
+  if (ready) {
+    seekToFrame(Math.round(currentTime * FPS));
+  }
+  requestRender();
+}
+
+function applyPlaybackSpeed() {
+  if (audio && audio.setPlaybackRate) audio.setPlaybackRate(currentAudioPlaybackRate());
+  if (playing) syncAudioPlay();
+}
+
+function currentBackgroundColor() {
+  const input = el('backgroundColor');
+  return input ? input.value : '#2D2D2D';
+}
+
+function selectedFloat(id, fallback) {
+  const input = el(id);
+  const value = input ? parseFloat(input.value) : fallback;
+  return value >= 0 ? value : fallback;
+}
+
+function currentAmbientLight() {
+  return selectedFloat('ambientLightLevel', 0.15);
+}
+
+function currentDirectionalLight() {
+  return selectedFloat('directionalLightLevel', 1.0);
+}
+
+function currentExposure() {
+  return selectedFloat('exposureLevel', 1.0);
+}
+
+function applyLighting() {
+  if (ambientLight) ambientLight.intensity = currentAmbientLight();
+  if (directionalLight) directionalLight.intensity = currentDirectionalLight();
+  if (renderer) renderer.toneMappingExposure = currentExposure();
+  requestRender();
+}
+
+function applyMeshShadow(object) {
+  if (!object || !object.traverse) return;
+  const enabled = shadowEnabled();
+  object.traverse(function (child) {
+    if (child.isMesh) {
+      child.castShadow = enabled;
+      child.receiveShadow = false;
+    }
+  });
+}
+
+function disposeObject(object) {
+  if (!object) return;
+  object.traverse(function (child) {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        for (let i = 0; i < child.material.length; i++) child.material[i].dispose();
+      } else {
+        child.material.dispose();
+      }
+    }
+  });
+}
+
+function removeRigidBodyHelper() {
+  if (!rigidBodyHelper) return;
+  if (rigidBodyHelper.parent) rigidBodyHelper.parent.remove(rigidBodyHelper);
+  disposeObject(rigidBodyHelper);
+  rigidBodyHelper = null;
+}
+
+function updateRigidBodyHelper() {
+  if (rigidBodyHelper) rigidBodyHelper.visible = false;
+}
+
+function applyView() {
+  if (scene) scene.background = new THREE.Color(currentBackgroundColor());
+  if (gridHelper) gridHelper.visible = floorEnabled();
+  if (shadowPlane) shadowPlane.visible = shadowEnabled();
+  if (directionalLight) directionalLight.castShadow = shadowEnabled();
+  if (renderer) renderer.shadowMap.enabled = shadowEnabled();
+  if (mesh) applyMeshShadow(mesh);
+  el('fps').style.display = fpsEnabled() ? 'block' : 'none';
+  requestRender();
+}
+
+function buildRenderer() {
+  const stage = el('stage');
+  const oldTarget = controls ? controls.target.clone() : new THREE.Vector3(0, 11, 0);
+  const oldPosition = camera ? camera.position.clone() : null;
+  const oldEnabled = controls ? controls.enabled : true;
+  if (controls) controls.dispose();
+  if (renderer) {
+    if (renderer.domElement && renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+    renderer.dispose();
+  }
+  renderer = new THREE.WebGLRenderer({ antialias: antialiasEnabled(), powerPreference: 'high-performance' });
+  renderer.setPixelRatio(currentPixelRatio());
+  renderer.toneMapping = THREE.LinearToneMapping;
+  renderer.toneMappingExposure = currentExposure();
+  renderer.shadowMap.enabled = shadowEnabled();
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  stage.appendChild(renderer.domElement);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.copy(oldTarget);
+  if (oldPosition) camera.position.copy(oldPosition);
+  controls.minDistance = 6;
+  controls.maxDistance = 120;
+  controls.enabled = cameraActive ? false : oldEnabled;
+  controls.addEventListener('change', requestRender);
+  controls.update();
+}
+
+function applyQuality() {
+  buildRenderer();
+  applyLighting();
+  applyView();
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  requestRender();
+}
+
+function revoke(list) {
+  for (let i = 0; i < list.length; i++) URL.revokeObjectURL(list[i]);
+  list.length = 0;
+}
+
+function resetDetected() {
+  folderName = '';
+  folderFiles = [];
+  modelEntries = [];
+  motionEntries = [];
+  cameraEntries = [];
+  audioEntries = [];
+  selectedModelIndex = -1;
+  requiredTex = [];
+  filePathMap = {};
+  fileBaseMap = {};
+  updateResetButton();
+}
+
+function resetLoadedFiles() {
+  clearScene();
+  revoke(runtimeUrls);
+  folderFiles = [];
+  modelEntries = [];
+  motionEntries = [];
+  cameraEntries = [];
+  audioEntries = [];
+  selectedModelIndex = -1;
+  requiredTex = [];
+  filePathMap = {};
+  fileBaseMap = {};
+  missingTex = {};
+  renderAll();
+  setStatus('');
+  requestRender();
+}
+
+async function walkDirectory(handle, prefix, out) {
+  for await (const item of handle.values()) {
+    const path = prefix ? prefix + '/' + item.name : item.name;
+    if (item.kind === 'file') {
+      const file = await item.getFile();
+      out.push({ file: file, path: path, name: item.name, url: '' });
+    } else if (item.kind === 'directory') {
+      await walkDirectory(item, path, out);
+    }
+  }
+}
+
+function sortEntries(entries) {
+  entries.sort(function (a, b) { return normPath(a.path).localeCompare(normPath(b.path)); });
+}
+
+function buildFileMaps(entries) {
+  filePathMap = {};
+  fileBaseMap = {};
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const path = normPath(entry.path);
+    const base = baseOf(path).toLowerCase();
+    filePathMap[path] = entry;
+    if (!fileBaseMap[base]) fileBaseMap[base] = [];
+    fileBaseMap[base].push(entry);
+  }
+}
+
+function bmpNeedsDecode(u8) {
+  if (u8.length < 54 || u8[0] !== 0x42 || u8[1] !== 0x4D) return false;
+  const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const bpp = view.getUint16(28, true);
+  const comp = view.getUint32(30, true);
+  return bpp >= 32 || comp !== 0;
+}
+
+async function convertBmpEntries(entries) {
+}
+
+function urlForEntry(entry) {
+  if (!entry) return '';
+  if (!entry.url) {
+    entry.url = URL.createObjectURL(entry.file);
+    runtimeUrls.push(entry.url);
+  }
+  return entry.url;
+}
+
+function resolveUrl(url) {
+  if (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) return url;
+  let decoded = url;
+  try { decoded = decodeURIComponent(url); } catch (e) {}
+  const key = normPath(decoded);
+  const byPath = filePathMap[key];
+  if (byPath) return urlForEntry(byPath);
+  const model = selectedModel();
+  if (model) {
+    const fromModel = filePathMap[joinPath(dirOf(model.path), key)];
+    if (fromModel) return urlForEntry(fromModel);
+  }
+  const base = baseOf(key).toLowerCase();
+  const byBase = fileBaseMap[base];
+  if (byBase && byBase.length > 0) return urlForEntry(byBase[0]);
+  if (isImageName(base)) {
+    missingTex[base] = true;
+    if (base.indexOf('spa') >= 0 || base.endsWith('.spa')) return BLACK_PNG;
+    if (!base.endsWith('.tga')) return BLANK_PNG;
+  }
+  return url;
+}
+
+function decodeName(bytes) {
+  let sub = bytes;
+  let end = sub.length;
+  for (let i = 0; i < sub.length; i++) {
+    if (sub[i] === 0) { end = i; break; }
+  }
+  sub = sub.slice(0, end);
+  try { return new TextDecoder('shift_jis').decode(sub).trim(); } catch (e) {}
+  let s = '';
+  for (let i = 0; i < sub.length; i++) s += String.fromCharCode(sub[i]);
+  return s.trim();
+}
+
+function readAscii(bytes, start, len) {
+  let s = '';
+  const max = Math.min(bytes.length, start + len);
+  for (let i = start; i < max; i++) {
+    if (bytes[i] === 0) break;
+    s += String.fromCharCode(bytes[i]);
+  }
+  return s;
+}
+
+function vmdLayout(view, offset) {
+  if (offset + 4 > view.byteLength) return null;
+  const bone = view.getUint32(offset, true);
+  offset += 4;
+  if (bone > 1000000) return null;
+  offset += bone * 111;
+  if (offset + 4 > view.byteLength) return null;
+  const morph = view.getUint32(offset, true);
+  offset += 4;
+  if (morph > 1000000) return null;
+  offset += morph * 23;
+  if (offset + 4 > view.byteLength) return null;
+  const camera = view.getUint32(offset, true);
+  offset += 4;
+  if (camera > 1000000) return null;
+  offset += camera * 61;
+  if (offset > view.byteLength) return null;
+  return { bone: bone, morph: morph, camera: camera };
+}
+
+function analyzeVmd(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const header = readAscii(bytes, 0, 30);
+  if (header.indexOf('Vocaloid Motion Data') !== 0) return { valid: false, bone: 0, morph: 0, camera: 0, modelName: '', modelKey: '' };
+  const modelName = decodeName(bytes.slice(30, 50));
+  const view = new DataView(buffer);
+  let layout = vmdLayout(view, 50);
+  if (!layout) layout = vmdLayout(view, 40);
+  if (!layout) return { valid: false, bone: 0, morph: 0, camera: 0, modelName: modelName, modelKey: normName(modelName) };
+  return { valid: true, bone: layout.bone, morph: layout.morph, camera: layout.camera, modelName: modelName, modelKey: normName(modelName) };
+}
+
+function extractTexturesAndNames(buffer, entry) {
+  const metadata = parsePmxMetadata(new Uint8Array(buffer));
+  const names = [];
+  pushUnique(names, normName(metadata.name));
+  pushUnique(names, normName(metadata.englishName));
+  pushUnique(names, normName(stripExt(entry.name)));
+  return { textures: [], names: names };
+}
+
+async function updateRequiredTextures() {
+  const model = selectedModel();
+  if (!model) {
+    requiredTex = [];
+    return;
+  }
+  try {
+    const info = extractTexturesAndNames(await model.file.arrayBuffer(), model);
+    requiredTex = info.textures;
+    model.keys = info.names;
+  } catch (e) {
+    requiredTex = [];
+    model.keys = [normName(stripExt(model.name))];
+  }
+}
+
+async function inspectFolder(entries) {
+  sortEntries(entries);
+  buildFileMaps(entries);
+  modelEntries = [];
+  motionEntries = [];
+  cameraEntries = [];
+  audioEntries = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (extOk(entry.name, ['.pmx'])) modelEntries.push(entry);
+    else if (extOk(entry.name, ['.mp3', '.wav'])) audioEntries.push(entry);
+  }
+  modelEntries.sort(function (a, b) {
+    return normPath(a.path).localeCompare(normPath(b.path));
+  });
+  for (let i = 0; i < modelEntries.length; i++) {
+    try {
+      const info = extractTexturesAndNames(await modelEntries[i].file.arrayBuffer(), modelEntries[i]);
+      modelEntries[i].keys = info.names;
+    } catch (e) {
+      modelEntries[i].keys = [normName(stripExt(modelEntries[i].name))];
+    }
+  }
+  const vmds = entries.filter(function (entry) { return extOk(entry.name, ['.vmd']); });
+  for (let i = 0; i < vmds.length; i++) {
+    try {
+      const result = analyzeVmd(await vmds[i].file.arrayBuffer());
+      vmds[i].modelName = result.modelName;
+      vmds[i].modelKey = result.modelKey;
+      if (result.valid && result.camera > 0) cameraEntries.push(vmds[i]);
+      if (result.valid && (result.bone > 0 || result.morph > 0)) motionEntries.push(vmds[i]);
+    } catch (e) {}
+  }
+  selectedModelIndex = modelEntries.length > 0 ? 0 : -1;
+  await convertBmpEntries(entries);
+  await updateRequiredTextures();
+}
+
+function mergeFiles(entries) {
+  const seen = {};
+  for (let i = 0; i < folderFiles.length; i++) {
+    const entry = folderFiles[i];
+    seen[normPath(entry.path) + ':' + entry.file.size + ':' + entry.file.lastModified] = true;
+  }
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const key = normPath(entry.path) + ':' + entry.file.size + ':' + entry.file.lastModified;
+    if (!seen[key]) {
+      seen[key] = true;
+      folderFiles.push(entry);
+    }
+  }
+}
+
+async function addSelectedFiles(files) {
+  const entries = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const path = file.webkitRelativePath || file.name;
+    entries.push({ file: file, path: path, name: file.name, url: '' });
+  }
+  if (entries.length === 0) return;
+  clearScene();
+  revoke(runtimeUrls);
+  mergeFiles(entries);
+  if (!folderName) folderName = 'Folder';
+  await inspectFolder(folderFiles);
+  renderAll();
+  setStatus(modelEntries.length > 0 ? '' : 'Error');
+  requestRender();
+}
+
+async function addZipFile(file) {
+  if (!window.JSZip) return;
+  const zip = await window.JSZip.loadAsync(file, { decodeFileName: function (bytes) {
+    try { return new TextDecoder('shift_jis').decode(bytes); } catch (e) { return new TextDecoder('utf-8').decode(bytes); }
+  } });
+  const entries = [];
+  const names = Object.keys(zip.files);
+  for (let i = 0; i < names.length; i++) {
+    const zipEntry = zip.files[names[i]];
+    if (zipEntry.dir) continue;
+    const blob = await zipEntry.async('blob');
+    entries.push({ file: new File([blob], baseOf(zipEntry.name), { type: blob.type }), path: zipEntry.name, name: baseOf(zipEntry.name), url: '' });
+  }
+  if (entries.length === 0) return;
+  clearScene();
+  revoke(runtimeUrls);
+  mergeFiles(entries);
+  if (!folderName) folderName = file.name;
+  await inspectFolder(folderFiles);
+  renderAll();
+  setStatus(modelEntries.length > 0 ? '' : 'Error');
+  requestRender();
+}
+
+async function selectFolder() {
+  if (!window.showDirectoryPicker) {
+    setStatus('');
+    return;
+  }
+  setStatus('');
+  try {
+    const dir = await window.showDirectoryPicker({ mode: 'read' });
+    allowedFolderHandle = dir;
+    clearScene();
+    revoke(runtimeUrls);
+    resetDetected();
+    folderName = dir.name;
+    await walkDirectory(dir, '', folderFiles);
+    await inspectFolder(folderFiles);
+    renderAll();
+    setStatus(modelEntries.length > 0 ? '' : 'Error');
+    requestRender();
+  } catch (e) {
+    setStatus('');
+  }
+}
+
+function clearScene() {
+  disposeActivePhysicsBackend();
+  if (audio) {
+    if (audio.isPlaying) audio.stop();
+    audio = null;
+  }
+  removeRigidBodyHelper();
+  if (currentMmdModel && currentMmdModel.root) {
+    scene.remove(currentMmdModel.root);
+    disposeObject(currentMmdModel.root);
+  } else if (mesh) {
+    scene.remove(mesh);
+    disposeObject(mesh);
+  }
+  mesh = null;
+  currentMmdModel = null;
+  currentMmdAnimation = null;
+  currentCameraMotion = null;
+  if (cameraActive) {
+    cameraActive = false;
+  }
+  ready = false;
+  playing = false;
+  physicsTemporarilyDisabled = false;
+  duration = 0;
+  currentTime = 0;
+  controls.enabled = true;
+  updatePlayBtn();
+  el('play').disabled = true;
+  updateResetButton();
+  refreshSeekRange();
+  requestRender();
+}
+
+function onProgress() {}
+
+function clipDur(a) {
+  if (Array.isArray(a)) {
+    let m = 0;
+    for (let i = 0; i < a.length; i++) if (clipDur(a[i]) > m) m = clipDur(a[i]);
+    return m;
+  }
+  const animation = a && a.animation ? a.animation : a;
+  if (animation && animation.metadata && Number.isFinite(animation.metadata.maxFrame)) return animation.metadata.maxFrame / FPS;
+  return a ? a.duration || 0 : 0;
+}
+
+function addDuration(d) {
+  if (d > duration) {
+    duration = d;
+    refreshSeekRange();
+  }
+}
+
+function refreshSeekRange() {
+  const total = Math.max(0, Math.round(duration * FPS));
+  const seek = el('seek');
+  const frame = el('frame');
+  seek.max = total;
+  frame.max = total;
+  el('frameTotal').textContent = '/ ' + total;
+  const enabled = total > 0;
+  seek.disabled = !enabled;
+  frame.disabled = !enabled;
+  updateSeekUI(true);
+}
+
+function updatePlayBtn() {
+  el('play').textContent = playing ? 'Pause' : 'Play';
+}
+
+function updateSeekUI(force) {
+  const fr = Math.round(currentTime * FPS);
+  const seek = el('seek');
+  const frame = el('frame');
+  if (!draggingSeek) seek.value = fr;
+  if (force || document.activeElement !== frame) frame.value = fr;
+}
+
+function entryFileForLoader(entry) {
+  const file = entry.file;
+  const path = entry.path || file.webkitRelativePath || file.name;
+  try {
+    Object.defineProperty(file, 'webkitRelativePath', { configurable: true, value: path });
+  } catch (e) {}
+  return file;
+}
+
+function folderFilesForLoader() {
+  const files = [];
+  for (let i = 0; i < folderFiles.length; i++) files.push(entryFileForLoader(folderFiles[i]));
+  return files;
+}
+
+function normalizeLoaderPath(path) {
+  return String(path || '').replace(/\\/g, '/').replace(/^\.\/+/, '');
+}
+
+function directoryNameForLoader(path) {
+  const index = path.lastIndexOf('/');
+  return index < 0 ? '' : path.slice(0, index);
+}
+
+function stripPrefixForLoader(path, prefix) {
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function createTextureMapForEntry(model) {
+  const modelFile = entryFileForLoader(model);
+  const textureMap = createMmdTextureMapFromFiles(folderFilesForLoader(), modelFile);
+  const modelDirectory = directoryNameForLoader(normalizeLoaderPath(model.path || modelFile.webkitRelativePath || modelFile.name));
+  for (let i = 0; i < folderFiles.length; i++) {
+    const entry = folderFiles[i];
+    if (!isImageName(entry.name)) continue;
+    const file = entryFileForLoader(entry);
+    const relativePath = normalizeLoaderPath(entry.path || file.webkitRelativePath || file.name);
+    const relativeToModel = modelDirectory ? stripPrefixForLoader(relativePath, modelDirectory + '/') : relativePath;
+    textureMap[relativePath] = file;
+    textureMap[relativeToModel] = file;
+    textureMap[file.name] = file;
+  }
+  return textureMap;
+}
+
+async function createModelLoaderForEntry(model) {
+  const textureMap = createTextureMapForEntry(model);
+  const physicsBackend = await createPhysicsBackendForCurrentSettings();
+  return new ThreeMmdLoader({
+    textureMap: textureMap,
+    ddsLoader: new DDSLoader(),
+    geometryAwareAlpha: true,
+    runtime: {
+      frameRate: FPS,
+      physics: physicsModeEnabled() ? 'external' : 'none',
+      physicsBackend: physicsBackend
+    }
+  });
+}
+
+function uniqueAnimationEntries(motionEntriesToLoad, cameraEntriesToLoad) {
+  const entries = [];
+  const seen = {};
+  const add = function (entry) {
+    const key = normPath(entry.path || entry.name);
+    if (seen[key]) return;
+    seen[key] = true;
+    entries.push(entry);
+  };
+  for (let i = 0; i < motionEntriesToLoad.length; i++) add(motionEntriesToLoad[i]);
+  for (let i = 0; i < cameraEntriesToLoad.length; i++) add(cameraEntriesToLoad[i]);
+  return entries;
+}
+
+async function loadAnimationsForEntries(entries) {
+  const animations = [];
+  for (let i = 0; i < entries.length; i++) {
+    const loaded = await mmdLoader.loadAnimation(entryFileForLoader(entries[i]));
+    const animation = loaded && loaded.animation ? loaded.animation : loaded;
+    if (animation) animations.push(animation);
+  }
+  return animations;
+}
+
+function copyFloatTuple(source, sourceIndex, target, targetIndex, size) {
+  const sourceOffset = sourceIndex * size;
+  const targetOffset = targetIndex * size;
+  for (let i = 0; i < size; i++) target[targetOffset + i] = source[sourceOffset + i];
+}
+
+function mergePackedBoneTrackList(tracks) {
+  const byFrame = new Map();
+  for (let i = 0; i < tracks.length; i++) {
+    const track = tracks[i];
+    for (let j = 0; j < track.frames.length; j++) byFrame.set(track.frames[j], { track: track, index: j });
+  }
+  const frames = Array.from(byFrame.keys()).sort(function (a, b) { return a - b; });
+  const result = {
+    packed: 'bone',
+    frames: new Uint32Array(frames.length),
+    translations: new Float32Array(frames.length * 3),
+    rotations: new Float32Array(frames.length * 4),
+    interpolations: new Float32Array(frames.length * 16),
+    physicsToggles: new Int8Array(frames.length)
+  };
+  result.physicsToggles.fill(-1);
+  for (let i = 0; i < frames.length; i++) {
+    const item = byFrame.get(frames[i]);
+    result.frames[i] = frames[i];
+    copyFloatTuple(item.track.translations, item.index, result.translations, i, 3);
+    copyFloatTuple(item.track.rotations, item.index, result.rotations, i, 4);
+    copyFloatTuple(item.track.interpolations, item.index, result.interpolations, i, 16);
+    result.physicsToggles[i] = item.track.physicsToggles ? item.track.physicsToggles[item.index] : -1;
+  }
+  return result;
+}
+
+function mergePackedMorphTrackList(tracks) {
+  const byFrame = new Map();
+  for (let i = 0; i < tracks.length; i++) {
+    const track = tracks[i];
+    for (let j = 0; j < track.frames.length; j++) byFrame.set(track.frames[j], { track: track, index: j });
+  }
+  const frames = Array.from(byFrame.keys()).sort(function (a, b) { return a - b; });
+  const result = {
+    packed: 'morph',
+    frames: new Uint32Array(frames.length),
+    weights: new Float32Array(frames.length)
+  };
+  for (let i = 0; i < frames.length; i++) {
+    const item = byFrame.get(frames[i]);
+    result.frames[i] = frames[i];
+    result.weights[i] = item.track.weights[item.index];
+  }
+  return result;
+}
+
+function mergeTrackGroups(animations, key, merger) {
+  const groups = {};
+  for (let i = 0; i < animations.length; i++) {
+    const tracks = animations[i][key] || {};
+    const names = Object.keys(tracks);
+    for (let j = 0; j < names.length; j++) {
+      const name = names[j];
+      if (!groups[name]) groups[name] = [];
+      groups[name].push(tracks[name]);
+    }
+  }
+  const result = {};
+  const names = Object.keys(groups).sort();
+  for (let i = 0; i < names.length; i++) result[names[i]] = merger(groups[names[i]]);
+  return result;
+}
+
+function mergeFrameList(animations, key) {
+  const byFrame = new Map();
+  for (let i = 0; i < animations.length; i++) {
+    const frames = animations[i][key] || [];
+    for (let j = 0; j < frames.length; j++) byFrame.set(frames[j].frame, frames[j]);
+  }
+  return Array.from(byFrame.keys()).sort(function (a, b) { return a - b; }).map(function (frame) { return byFrame.get(frame); });
+}
+
+function countTrackFrames(tracks) {
+  let total = 0;
+  const names = Object.keys(tracks);
+  for (let i = 0; i < names.length; i++) total += tracks[names[i]].frames.length;
+  return total;
+}
+
+function maxAnimationFrame(animations, cameraFrames, lightFrames, selfShadowFrames, propertyFrames) {
+  let frame = 0;
+  for (let i = 0; i < animations.length; i++) frame = Math.max(frame, animations[i].metadata && Number.isFinite(animations[i].metadata.maxFrame) ? animations[i].metadata.maxFrame : 0);
+  const lists = [cameraFrames, lightFrames, selfShadowFrames, propertyFrames];
+  for (let i = 0; i < lists.length; i++) for (let j = 0; j < lists[i].length; j++) frame = Math.max(frame, lists[i][j].frame || 0);
+  return frame;
+}
+
+function firstAnimationMetadataValue(animations, key) {
+  for (let i = 0; i < animations.length; i++) {
+    const value = animations[i].metadata ? animations[i].metadata[key] : '';
+    if (value) return value;
+  }
+  return '';
+}
+
+function combineMmdAnimations(animations) {
+  if (animations.length === 0) return null;
+  if (animations.length === 1) return animations[0];
+  const boneTracks = mergeTrackGroups(animations, 'boneTracks', mergePackedBoneTrackList);
+  const morphTracks = mergeTrackGroups(animations, 'morphTracks', mergePackedMorphTrackList);
+  const cameraFrames = mergeFrameList(animations, 'cameraFrames');
+  const lightFrames = mergeFrameList(animations, 'lightFrames');
+  const selfShadowFrames = mergeFrameList(animations, 'selfShadowFrames');
+  const propertyFrames = mergeFrameList(animations, 'propertyFrames');
+  return {
+    kind: 'vmd',
+    bytes: new Uint8Array(0),
+    metadata: {
+      format: 'vmd',
+      name: firstAnimationMetadataValue(animations, 'name'),
+      modelName: firstAnimationMetadataValue(animations, 'modelName'),
+      counts: {
+        bones: countTrackFrames(boneTracks),
+        morphs: countTrackFrames(morphTracks),
+        cameras: cameraFrames.length,
+        lights: lightFrames.length,
+        selfShadows: selfShadowFrames.length,
+        properties: propertyFrames.length
+      },
+      maxFrame: maxAnimationFrame(animations, cameraFrames, lightFrames, selfShadowFrames, propertyFrames)
+    },
+    boneTracks: boneTracks,
+    morphTracks: morphTracks,
+    cameraFrames: cameraFrames,
+    lightFrames: lightFrames,
+    selfShadowFrames: selfShadowFrames,
+    propertyFrames: propertyFrames
+  };
+}
+
+function attachCameraAnimation(animation) {
+  const source = animation && animation.animation ? animation.animation : animation;
+  if (!source || !source.cameraFrames || source.cameraFrames.length === 0) return;
+  currentCameraMotion = {
+    frames: source.cameraFrames,
+    frameIndexHint: { index: 0 },
+    state: {
+      distance: 0,
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      fov: 1,
+      perspective: true
+    },
+    target: new THREE.Vector3(),
+    offset: new THREE.Vector3(),
+    euler: new THREE.Euler(),
+    quaternion: new THREE.Quaternion(),
+    up: new THREE.Vector3()
+  };
+  cameraActive = true;
+  controls.enabled = false;
+  addDuration(clipDur(source));
+}
+
+
+function applyCameraMotionAt(time) {
+  if (!currentCameraMotion || currentCameraMotion.frames.length === 0) return;
+  const sampled = sampleMmdCameraTrackInto(currentCameraMotion.frames, time * FPS, currentCameraMotion.state, currentCameraMotion.frameIndexHint);
+  if (!sampled) return;
+  applyMmdCameraStateToThreeCamera(camera, sampled, {
+    target: currentCameraMotion.target,
+    offset: currentCameraMotion.offset,
+    euler: currentCameraMotion.euler,
+    quaternion: currentCameraMotion.quaternion,
+    up: currentCameraMotion.up,
+    aspect: camera.aspect
+  });
+}
+
+function applyMmdLightMotion() {
+  if (!currentMmdModel || !currentMmdModel.runtime || !directionalLight) return;
+  const lightState = currentMmdModel.runtime.lightState ? currentMmdModel.runtime.lightState() : null;
+  if (!lightState) return;
+  directionalLight.color.setRGB(lightState.color[0], lightState.color[1], lightState.color[2]);
+  const direction = new THREE.Vector3(lightState.direction[0], lightState.direction[1], -lightState.direction[2]);
+  if (direction.lengthSq() > 0) {
+    direction.normalize();
+    directionalLight.target.position.copy(controls.target);
+    directionalLight.position.copy(controls.target).addScaledVector(direction, 5);
+    directionalLight.target.updateMatrixWorld();
+    directionalLight.updateMatrixWorld();
+  }
+  syncMmdSpecularDirection(currentMmdModel.mesh.material, directionalLight);
+}
+
+function attachAudio(path) {
+  const audioLoader = new THREE.AudioLoader(manager);
+  audioLoader.load(path, function (buffer) {
+    audio = new THREE.Audio(listener);
+    audio.setBuffer(buffer);
+    applyAudioVolume();
+    if (playing) syncAudioPlay();
+  }, onProgress, function () {});
+}
+
+function audioStop() {
+  if (!audio) return;
+  if (audio.isPlaying) audio.stop();
+  audio._progress = 0;
+}
+
+function syncAudioPlay() {
+  if (!audio) return;
+  audioStop();
+  if (audio.setPlaybackRate) audio.setPlaybackRate(currentAudioPlaybackRate());
+  applyAudioVolume();
+  audio.offset = currentTime;
+  audio.play();
+}
+
+function audioPause() {
+  audioStop();
+}
+
+async function finishLoad(audioPath) {
+  applyMeshShadow(currentMmdModel.root);
+  scene.add(currentMmdModel.root);
+  syncMmdSpecularDirection(currentMmdModel.mesh.material, directionalLight);
+  applyPhysicsMode();
+  updateRigidBodyHelper();
+  if (audioPath) attachAudio(audioPath);
+  ready = true;
+  playing = false;
+  currentTime = 0;
+  updatePlayBtn();
+  refreshSeekRange();
+  el('play').disabled = false;
+  el('reset').disabled = false;
+  setStatus('');
+  seekToFrame(0);
+  requestRender();
+}
+
+async function loadModel() {
+  const model = selectedModel();
+  if (!model) {
+    setStatus('');
+    return;
+  }
+  physicsTemporarilyDisabled = false;
+  clearScene();
+  revoke(runtimeUrls);
+  missingTex = {};
+  buildFileMaps(folderFiles);
+  const motionEntriesToLoad = selectedMotions();
+  const cameraEntriesToLoad = cameraEntries.slice();
+  const animationEntriesToLoad = uniqueAnimationEntries(motionEntriesToLoad, cameraEntriesToLoad);
+  const audioPath = audioEntries.length > 0 ? normPath(audioEntries[0].path) : '';
+  setStatus('Loading');
+  try {
+    mmdLoader = await createModelLoaderForEntry(model);
+    currentMmdModel = await mmdLoader.loadModel(entryFileForLoader(model), { frustumCulled: false, outline: true, materialRenderOrder: true });
+    mesh = currentMmdModel.mesh;
+    if (animationEntriesToLoad.length > 0) {
+      const animations = await loadAnimationsForEntries(animationEntriesToLoad);
+      const animation = combineMmdAnimations(animations);
+      if (animation) {
+        currentMmdAnimation = animation;
+        currentMmdModel.setAnimation(animation);
+        attachCameraAnimation(animation);
+        addDuration(clipDur(animation));
+      }
+    }
+    await finishLoad(audioPath);
+  } catch (e) {
+    setStatus('');
+  }
+}
+
+function resumeAudioContext() {
+  if (listener && listener.context && listener.context.state === 'suspended') listener.context.resume();
+}
+
+function activateMixerActions(data) {
+  if (!data || !data.mixer) return;
+  const actions = data.mixer._actions || [];
+  for (let i = 0; i < actions.length; i++) {
+    actions[i].enabled = true;
+    actions[i].paused = false;
+    actions[i].play();
+  }
+}
+
+function setMixerAbsoluteTime(data, time) {
+  if (!data || !data.mixer) return;
+  activateMixerActions(data);
+  data.mixer.setTime(time);
+  data.mixer.update(0);
+}
+
+function updateObjectMatrix(object) {
+  if (!object) return;
+  if (object.skeleton && object.skeleton.update) object.skeleton.update();
+  if (object.updateMatrixWorld) object.updateMatrixWorld(true);
+}
+
+function applyObjectAnimationTime(object, time) {
+  applyFrameAnimationTime(time);
+}
+
+function applyFrameAnimationTime(time, physics) {
+  if (currentMmdModel) {
+    currentMmdModel.update(time, {
+      ik: selectedModeOn('ikMode', true),
+      physics: physics === undefined ? effectivePhysicsEnabled() : physics
+    });
+    applyMmdLightMotion();
+  }
+  applyCameraMotionAt(time);
+  updateObjectMatrix(mesh);
+  if (cameraActive) updateObjectMatrix(camera);
+}
+
+function resetObjectPhysics(object) {
+}
+
+function resetPhysicsNow() {
+  if (!ready) return;
+  if (activePhysicsBackend && activePhysicsBackend.reset) activePhysicsBackend.reset();
+  applyFrameAnimationTime(currentTime, false);
+  requestRender();
+}
+
+function seekToFrame(fr) {
+  if (!ready) return;
+  const total = Math.max(0, Math.round(duration * FPS));
+  if (total <= 0) {
+    currentTime = 0;
+    applyFrameAnimationTime(currentTime, false);
+    updateSeekUI(true);
+    requestRender();
+    return;
+  }
+  fr = Math.min(Math.max(0, fr), total);
+  currentTime = fr / FPS;
+  applyFrameAnimationTime(currentTime, false);
+  if (playing) syncAudioPlay();
+  updateSeekUI(true);
+  requestRender();
+}
+
+function togglePlay() {
+  if (!ready) return;
+  resumeAudioContext();
+  if (!playing && duration > 0 && currentTime >= duration) seekToFrame(0);
+  const nextPlaying = !playing;
+  if (nextPlaying) {
+    physicsTemporarilyDisabled = false;
+    syncPhysicsEnabledOnly();
+  }
+  playing = nextPlaying;
+  updatePlayBtn();
+  if (playing) syncAudioPlay();
+  else audioPause();
+  requestRender();
+}
+
+function updateFps(now) {
+  const box = el('fps');
+  if (!fpsEnabled()) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  fpsSampleFrames++;
+  if (!fpsSampleTime) {
+    fpsSampleTime = now;
+    return;
+  }
+  const elapsed = now - fpsSampleTime;
+  if (elapsed >= 500) {
+    box.textContent = Math.round(fpsSampleFrames * 1000 / elapsed) + ' fps';
+    fpsSampleTime = now;
+    fpsSampleFrames = 0;
+  }
+}
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  updateFps(now || performance.now());
+  let delta = clock.getDelta();
+  if (ready && playing) {
+    const scaledDelta = delta * currentPlaybackSpeed();
+    currentTime += scaledDelta;
+    applyFrameAnimationTime(currentTime);
+    if (duration > 0 && currentTime >= duration) {
+      currentTime = duration;
+      playing = false;
+      updatePlayBtn();
+      audioPause();
+    }
+    updateSeekUI(false);
+    needsRender = true;
+  }
+  if (needsRender) {
+    controls.update();
+    renderer.render(scene, camera);
+    needsRender = false;
+  }
+}
+
+function selectModel(index) {
+  selectedModelIndex = index;
+  updateRequiredTextures().then(function () {
+    clearScene();
+    revoke(runtimeUrls);
+    renderAll();
+    setStatus('');
+  });
+}
+
+el('toggle').addEventListener('click', function () { el('panel').classList.toggle('open'); });
+el('fullscreen').addEventListener('click', function () {
+  const d = document;
+  const active = d.fullscreenElement || d.webkitFullscreenElement;
+  if (active) {
+    if (d.exitFullscreen) d.exitFullscreen();
+    else if (d.webkitExitFullscreen) d.webkitExitFullscreen();
+  } else {
+    const root = d.documentElement;
+    if (root.requestFullscreen) root.requestFullscreen();
+    else if (root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+  }
+});
+function openMenu(name) {
+  const panel = el('settingsPanel');
+  const same = panel.classList.contains('open') && panel.getAttribute('data-menu') === name;
+  const pages = document.querySelectorAll('.menuPage');
+  for (let i = 0; i < pages.length; i++) pages[i].classList.remove('active');
+  if (same) {
+    panel.classList.remove('open');
+    panel.removeAttribute('data-menu');
+    return;
+  }
+  el(name + 'Menu').classList.add('active');
+  panel.setAttribute('data-menu', name);
+  panel.classList.add('open');
+}
+el('viewToggle').addEventListener('click', function () { openMenu('view'); });
+el('playbackToggle').addEventListener('click', function () { openMenu('playback'); });
+el('physicsToggle').addEventListener('click', function () { openMenu('physics'); });
+el('folderBtn').addEventListener('click', selectFolder);
+el('fileBtn').addEventListener('click', function () { el('fileInput').click(); });
+el('zipBtn').addEventListener('click', function () { el('zipInput').click(); });
+el('fileInput').addEventListener('change', function (e) {
+  addSelectedFiles(Array.from(e.target.files));
+  e.target.value = '';
+});
+el('zipInput').addEventListener('change', function (e) {
+  if (e.target.files[0]) addZipFile(e.target.files[0]);
+  e.target.value = '';
+});
+el('modelSelect').addEventListener('change', function (e) { selectModel(parseInt(e.target.value, 10) || 0); });
+el('ikMode').addEventListener('change', applyIkMode);
+el('physicsMode').addEventListener('change', function () {
+  physicsTemporarilyDisabled = false;
+  if (ready) loadModel();
+  else applyPhysicsMode();
+});
+el('rigidBodyMode').addEventListener('change', function () {
+  updateRigidBodyHelper();
+  requestRender();
+});
+el('physicsReset').addEventListener('click', resetPhysicsNow);
+function syncRangeNumber(rangeId, numberId, callback) {
+  const range = el(rangeId);
+  const number = el(numberId);
+  const run = function (source, target) {
+    target.value = source.value;
+    callback();
+  };
+  range.addEventListener('input', function () { run(range, number); });
+  number.addEventListener('input', function () { run(number, range); });
+  number.addEventListener('change', function () { run(number, range); });
+}
+
+el('pixelRatio').addEventListener('change', applyQuality);
+el('antialiasMode').addEventListener('change', applyQuality);
+el('shadowMode').addEventListener('change', applyView);
+el('floorMode').addEventListener('change', applyView);
+el('backgroundColor').addEventListener('input', applyView);
+el('fpsMode').addEventListener('change', applyView);
+syncRangeNumber('ambientLightLevelRange', 'ambientLightLevel', applyLighting);
+syncRangeNumber('directionalLightLevelRange', 'directionalLightLevel', applyLighting);
+syncRangeNumber('exposureLevelRange', 'exposureLevel', applyLighting);
+syncRangeNumber('playbackSpeedRange', 'playbackSpeed', applyPlaybackSpeed);
+syncRangeNumber('audioVolumeRange', 'audioVolume', applyAudioVolume);
+syncRangeNumber('gravityXRange', 'gravityX', applyPhysicsRuntime);
+syncRangeNumber('gravityYRange', 'gravityY', applyPhysicsRuntime);
+syncRangeNumber('gravityZRange', 'gravityZ', applyPhysicsRuntime);
+syncRangeNumber('physicsStepRange', 'physicsStep', applyPhysicsRuntime);
+syncRangeNumber('physicsMaxStepRange', 'physicsMaxStep', applyPhysicsRuntime);
+el('play').addEventListener('click', togglePlay);
+el('seek').addEventListener('input', function (e) {
+  draggingSeek = true;
+  seekToFrame(parseInt(e.target.value, 10) || 0);
+});
+el('seek').addEventListener('change', function (e) {
+  draggingSeek = false;
+  seekToFrame(parseInt(e.target.value, 10) || 0);
+});
+el('seek').addEventListener('pointerup', function (e) {
+  draggingSeek = false;
+  seekToFrame(parseInt(e.target.value, 10) || 0);
+});
+el('frame').addEventListener('input', function (e) { seekToFrame(parseInt(e.target.value, 10) || 0); });
+el('frame').addEventListener('change', function (e) { seekToFrame(parseInt(e.target.value, 10) || 0); });
+el('load').addEventListener('click', loadModel);
+el('studioSave').addEventListener('click', saveStudio);
+el('studioRestore').addEventListener('click', restoreStudio);
+el('reset').addEventListener('click', resetLoadedFiles);
+
+init();
+renderAll();
+setStatus('');
+animate();
+</script>
+</body>
+</html>
