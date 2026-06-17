@@ -11,19 +11,18 @@ window.addEventListener('unhandledrejection', function (ev) { appendLog('reject:
 
 var el = function (id) { return document.getElementById(id); };
 var statusEl = el('status');
-var loadingTimer = null, loadingStep = 0;
+var lastStatusText = '';
 
 function setStatus(text) {
-  if (text === 'Loading') {
-    if (!loadingTimer) {
-      loadingStep = 0;
-      statusEl.textContent = 'Loading...';
-      loadingTimer = setInterval(function () { loadingStep++; statusEl.textContent = 'Loading' + ['\\', '-', '/'][loadingStep % 3]; }, 160);
-    }
+  var msg = text || '';
+  if (statusEl) statusEl.textContent = '';
+  if (msg === 'Loading') {
+    if (msg !== lastStatusText) appendLog('Loading');
+    lastStatusText = msg;
     return;
   }
-  if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
-  statusEl.textContent = text || '';
+  if (msg && msg !== lastStatusText) appendLog(msg);
+  lastStatusText = msg;
 }
 
 /* ====== File state ====== */
@@ -34,11 +33,17 @@ var characters = [], charSeq = 0, selectedCharId = -1, cameraSel = 'free', audio
 
 /* ====== Babylon state ====== */
 var engine, scene, arcCamera, canvas;
-var hemi, dir, grid;
+var hemi, dir, grid, shadowGenerator, shadowGround;
+var forcedGroundShadows = {}, forcedGroundShadowTexture = null, forcedGroundShadowMaterial = null, forcedGroundShadowObserver = null;
+var moveGizmoLayer = null, moveGizmo = null, rotateGizmo = null;
+var moveGizmoDragBound = false, rotateGizmoDragBound = false;
 var mmdRuntime = null, mmdCamNode = null, audioPlayer = null, audioUrl = null;
+var modelFpsLimiterObserver = null;
+var toonMaterialDefaults = new WeakMap();
 var materialBuilder = null;
 var wasmInstance = null, physicsRuntime = null, physicsReady = false;
 var glowLayer = null, fxPipeline = null;
+var appliedEffectCode = '', effectDisposers = [];
 
 /* ====== Playback state ====== */
 var ready = false, playing = false, duration = 0, currentFrameTime = 0, draggingSeek = false;
@@ -47,6 +52,7 @@ var rendering = false;
 
 const FPS = 30;
 const STUDIO_DB = 'mmd-viewer-studio', STUDIO_STORE = 'studio', STUDIO_KEY = 'current';
+const SETTING_IDS = ['floorMode', 'fpsMode', 'pixelRatio', 'selfShadowMode', 'normalShadowMode', 'ambientLightLevel', 'directionalLightLevel', 'dirRotX', 'dirRotY', 'dirRotZ', 'backgroundColor', 'playbackSpeed', 'audioVolume', 'modelFpsLimit', 'physicsMode', 'ikMode', 'evalType', 'useDelta', 'physicsFps', 'substeps', 'glowMode', 'glowIntensity', 'glowBlur', 'bloomMode', 'bloomWeight', 'bloomThreshold', 'dofMode', 'dofFocus', 'dofAperture', 'renderFps', 'renderBitrate', 'gizmoMode'];
 
 /* ====== Babylon init ====== */
 function init() {
@@ -66,16 +72,25 @@ function init() {
   hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0, 1, 0), scene);
   hemi.intensity = currentAmbientLight();
   dir = new BABYLON.DirectionalLight('dir', new BABYLON.Vector3(0.5, -1, 1), scene);
+  dir.position = new BABYLON.Vector3(-30, 40, -30);
   dir.intensity = currentDirectionalLight();
+  dir.autoCalcShadowZBounds = true;
 
   buildGrid();
-  new BABYLON.AxesViewer(scene, 8);
 
   materialBuilder = BABYLONMMD.MmdStandardMaterialBuilder ? new BABYLONMMD.MmdStandardMaterialBuilder() : null;
   if (materialBuilder && BABYLONMMD.MmdMaterialRenderMethod) materialBuilder.renderMethod = BABYLONMMD.MmdMaterialRenderMethod.DepthWriteAlphaBlending;
 
   initPhysics();
 
+  var _origCreateEffect = engine.createEffect.bind(engine);
+  engine.createEffect = function(eName, eOpts, eUniforms, eSamplers, eDefines, eFallbacks, eOnCompiled, eOnError, eIndexParams, eLang, eKey) {
+    var wrappedOnError = function(effect, err) {
+      appendLog('[shader error] ' + (typeof eName === 'string' ? eName : (eName && eName.fragmentSource ? 'inline' : JSON.stringify(eName))) + ': ' + err);
+      if (eOnError) eOnError(effect, err);
+    };
+    return _origCreateEffect(eName, eOpts, eUniforms, eSamplers, eDefines, eFallbacks, eOnCompiled, wrappedOnError, eIndexParams, eLang, eKey);
+  };
   engine.runRenderLoop(function () { if (rendering) return; scene.render(); updateFps(performance.now()); });
   window.addEventListener('resize', function () { engine.resize(); });
   engine.resize();
@@ -139,6 +154,232 @@ function applyUseDelta() {
   physicsRuntime.useDeltaForWorldStep = (el('useDelta') || {}).value === 'on';
 }
 
+function currentModelFpsLimit() {
+  var node = el('modelFpsLimit');
+  if (!node || node.value === 'off') return 0;
+  return parseInt(node.value, 10) || 0;
+}
+
+function clearModelFpsLimiterState() {
+  for (var i = 0; i < characters.length; i++) {
+    characters[i].limitedPoseStep = -1;
+    characters[i].limitedPoseMatrices = null;
+    characters[i].limitedPoseMorphs = null;
+  }
+}
+
+function captureCharacterMorphs(ch) {
+  var out = [];
+  var meshes = ch.container && ch.container.meshes ? ch.container.meshes : [];
+  for (var i = 0; i < meshes.length; i++) {
+    var manager = meshes[i].morphTargetManager;
+    if (!manager) continue;
+    var item = { manager: manager, values: [] };
+    for (var j = 0; j < manager.numTargets; j++) item.values.push(manager.getTarget(j).influence);
+    out.push(item);
+  }
+  return out;
+}
+
+function restoreCharacterMorphs(items) {
+  if (!items) return;
+  for (var i = 0; i < items.length; i++) {
+    var manager = items[i].manager;
+    var values = items[i].values;
+    for (var j = 0; j < values.length && j < manager.numTargets; j++) manager.getTarget(j).influence = values[j];
+  }
+}
+
+function captureCharacterLimitedPose(ch, step) {
+  if (!ch.model || !ch.model.worldTransformMatrices) return;
+  if (!ch.limitedPoseMatrices || ch.limitedPoseMatrices.length !== ch.model.worldTransformMatrices.length) {
+    ch.limitedPoseMatrices = new Float32Array(ch.model.worldTransformMatrices.length);
+  }
+  ch.limitedPoseMatrices.set(ch.model.worldTransformMatrices);
+  ch.limitedPoseMorphs = captureCharacterMorphs(ch);
+  ch.limitedPoseStep = step;
+}
+
+function restoreCharacterLimitedPose(ch) {
+  if (!ch.model || !ch.model.worldTransformMatrices || !ch.limitedPoseMatrices) return;
+  ch.model.worldTransformMatrices.set(ch.limitedPoseMatrices);
+  restoreCharacterMorphs(ch.limitedPoseMorphs);
+  if (ch.mesh && ch.mesh.metadata && ch.mesh.metadata.skeleton) ch.mesh.metadata.skeleton._markAsDirty();
+}
+
+function applyModelFpsLimit() {
+  clearModelFpsLimiterState();
+}
+
+function ensureModelFpsLimiter() {
+  if (!scene || modelFpsLimiterObserver) return;
+  modelFpsLimiterObserver = scene.onBeforeRenderObservable.add(function () {
+    var fps = currentModelFpsLimit();
+    if (!fps || !mmdRuntime || (!playing && !rendering)) {
+      clearModelFpsLimiterState();
+      return;
+    }
+    var step = Math.floor((mmdRuntime.currentFrameTime / 30) * fps);
+    for (var i = 0; i < characters.length; i++) {
+      var ch = characters[i];
+      if (ch.limitedPoseStep !== step || !ch.limitedPoseMatrices) captureCharacterLimitedPose(ch, step);
+      else restoreCharacterLimitedPose(ch);
+    }
+  });
+}
+
+
+function cloneColorValue(v) {
+  return v && v.clone ? v.clone() : v;
+}
+
+function setColorValue(obj, key, value) {
+  if (!obj || !(key in obj) || !value) return;
+  if (obj[key] && obj[key].copyFrom) obj[key].copyFrom(value);
+  else obj[key] = cloneColorValue(value);
+}
+
+function markToonMaterialDirty(mat) {
+  try { if (mat && mat.markDirty) mat.markDirty(); } catch (e) {}
+  try { if (mat && mat._markAllSubMeshesAsDirty && BABYLON.Material) mat._markAllSubMeshesAsDirty(BABYLON.Material.AllDirtyFlag); } catch (e) {}
+}
+
+function rememberToonMaterialDefaults(mat) {
+  if (!mat || typeof mat !== 'object') return null;
+  var saved = toonMaterialDefaults.get(mat);
+  if (saved) return saved;
+  saved = {
+    hasDisableLighting: 'disableLighting' in mat,
+    disableLighting: mat.disableLighting,
+    hasSpecularPower: 'specularPower' in mat,
+    specularPower: mat.specularPower,
+    hasSpecularColor: 'specularColor' in mat,
+    specularColor: cloneColorValue(mat.specularColor),
+    hasDiffuseColor: 'diffuseColor' in mat,
+    diffuseColor: cloneColorValue(mat.diffuseColor),
+    hasAlbedoColor: 'albedoColor' in mat,
+    albedoColor: cloneColorValue(mat.albedoColor),
+    hasEmissiveColor: 'emissiveColor' in mat,
+    emissiveColor: cloneColorValue(mat.emissiveColor),
+    hasAmbientColor: 'ambientColor' in mat,
+    ambientColor: cloneColorValue(mat.ambientColor)
+  };
+  toonMaterialDefaults.set(mat, saved);
+  return saved;
+}
+
+function restoreToonMaterial(mat) {
+  var saved = toonMaterialDefaults.get(mat);
+  if (!saved) return;
+  if (saved.hasDisableLighting) mat.disableLighting = saved.disableLighting;
+  if (saved.hasSpecularPower) mat.specularPower = saved.specularPower;
+  if (saved.hasSpecularColor) setColorValue(mat, 'specularColor', saved.specularColor);
+  if (saved.hasDiffuseColor) setColorValue(mat, 'diffuseColor', saved.diffuseColor);
+  if (saved.hasAlbedoColor) setColorValue(mat, 'albedoColor', saved.albedoColor);
+  if (saved.hasEmissiveColor) setColorValue(mat, 'emissiveColor', saved.emissiveColor);
+  if (saved.hasAmbientColor) setColorValue(mat, 'ambientColor', saved.ambientColor);
+  markToonMaterialDirty(mat);
+}
+
+function collectCharacterMaterials(ch) {
+  var list = [];
+  function add(mat) {
+    if (!mat) return;
+    if (mat.subMaterials && mat.subMaterials.length) {
+      for (var s = 0; s < mat.subMaterials.length; s++) add(mat.subMaterials[s]);
+      return;
+    }
+    if (list.indexOf(mat) < 0) list.push(mat);
+  }
+  var meshes = ch && ch.container && ch.container.meshes ? ch.container.meshes : [];
+  for (var i = 0; i < meshes.length; i++) add(meshes[i].material);
+  var mats = ch && ch.container && ch.container.materials ? ch.container.materials : [];
+  for (var j = 0; j < mats.length; j++) add(mats[j]);
+  var mmats = ch && ch.container && ch.container.multiMaterials ? ch.container.multiMaterials : [];
+  for (var k = 0; k < mmats.length; k++) add(mmats[k]);
+  return list;
+}
+
+function clampFlatToonBrightness(v) {
+  var n = parseFloat(v);
+  if (!isFinite(n)) n = 1;
+  return Math.max(0, Math.min(5, n));
+}
+
+function toonBrightnessColor(src, brightness) {
+  var c = src && typeof src.r === 'number' ? src : new BABYLON.Color3(1, 1, 1);
+  if ((c.r + c.g + c.b) < 0.001) c = new BABYLON.Color3(1, 1, 1);
+  return new BABYLON.Color3(c.r * brightness, c.g * brightness, c.b * brightness);
+}
+
+function applyFlatToonMaterial(mat, brightness) {
+  var saved = rememberToonMaterialDefaults(mat) || {};
+  var b = clampFlatToonBrightness(brightness);
+  var base = saved.diffuseColor || saved.albedoColor || mat.diffuseColor || mat.albedoColor || new BABYLON.Color3(1, 1, 1);
+  var color = toonBrightnessColor(base, b);
+  if ('disableLighting' in mat) mat.disableLighting = true;
+  if ('specularPower' in mat) mat.specularPower = 0;
+  if ('specularColor' in mat) setColorValue(mat, 'specularColor', new BABYLON.Color3(0, 0, 0));
+  if ('diffuseColor' in mat) setColorValue(mat, 'diffuseColor', color);
+  if ('albedoColor' in mat) setColorValue(mat, 'albedoColor', color);
+  if ('ambientColor' in mat) setColorValue(mat, 'ambientColor', color);
+  if ('emissiveColor' in mat) setColorValue(mat, 'emissiveColor', color);
+  markToonMaterialDirty(mat);
+}
+
+function applyToonModeToCharacter(ch) {
+  if (!ch) return;
+  var mode = ch.toonMode || 'off';
+  var brightness = clampFlatToonBrightness(ch.flatToonBrightness == null ? 1 : ch.flatToonBrightness);
+  var mats = collectCharacterMaterials(ch);
+  for (var i = 0; i < mats.length; i++) {
+    if (mode === 'flat') applyFlatToonMaterial(mats[i], brightness);
+    else restoreToonMaterial(mats[i]);
+  }
+}
+
+function syncCharacterToonModeControl() {
+  var node = el('characterToonMode');
+  if (!node) return;
+  var ch = currentChar();
+  node.disabled = !ch;
+  node.value = ch && ch.toonMode ? ch.toonMode : 'off';
+  syncCharacterToonBrightnessControl();
+}
+
+function syncCharacterToonBrightnessControl() {
+  var range = el('flatToonBrightnessRange');
+  var number = el('flatToonBrightness');
+  if (!range || !number) return;
+  var ch = currentChar();
+  var v = ch ? clampFlatToonBrightness(ch.flatToonBrightness == null ? 1 : ch.flatToonBrightness) : 1;
+  range.disabled = !ch;
+  number.disabled = !ch;
+  range.value = String(v);
+  number.value = String(v);
+}
+
+function applyCharacterToonMode() {
+  var ch = currentChar();
+  if (!ch) return;
+  var node = el('characterToonMode');
+  ch.toonMode = node ? node.value : 'off';
+  applyToonModeToCharacter(ch);
+  renderCharacters();
+}
+
+function applyCharacterToonBrightness() {
+  var ch = currentChar();
+  if (!ch) return;
+  var number = el('flatToonBrightness');
+  var range = el('flatToonBrightnessRange');
+  var v = clampFlatToonBrightness(number ? number.value : range ? range.value : 1);
+  ch.flatToonBrightness = v;
+  if (number) number.value = String(v);
+  if (range) range.value = String(v);
+  applyToonModeToCharacter(ch);
+}
+
 /* ====== Physics toggle (Bullet対応) ====== */
 function applyIkModeTo(ch) {
   if (!ch.model) return;
@@ -177,7 +418,6 @@ function resetPhysics() {
 /* ====== FX (Glow / Bloom / DOF) ====== */
 function fxNum(id, fallback) { var v = parseFloat((el(id) || {}).value); return isFinite(v) ? v : fallback; }
 function fxOn(id) { return (el(id) || {}).value === 'on'; }
-
 function applyGlow() {
   if (!scene) return;
   if (fxOn('glowMode')) {
@@ -212,6 +452,7 @@ function ensurePipeline() {
 function applyBloom() {
   if (!scene) return;
   ensurePipeline();
+  if (!fxPipeline) return;
   fxPipeline.bloomEnabled = fxOn('bloomMode');
   fxPipeline.bloomWeight = fxNum('bloomWeight', 0.6);
   fxPipeline.bloomThreshold = fxNum('bloomThreshold', 0.8);
@@ -220,9 +461,18 @@ function applyBloom() {
 function applyDof() {
   if (!scene) return;
   ensurePipeline();
+  if (!fxPipeline) return;
   fxPipeline.depthOfFieldEnabled = fxOn('dofMode');
   fxPipeline.depthOfField.focusDistance = fxNum('dofFocus', 2000);
   fxPipeline.depthOfField.fStop = Math.max(0.1, fxNum('dofAperture', 0.1) * 10);
+}
+
+function getFxCameras() {
+  var cameras = [];
+  if (scene && scene.activeCamera) cameras.push(scene.activeCamera);
+  if (arcCamera && cameras.indexOf(arcCamera) < 0) cameras.push(arcCamera);
+  if (mmdCamNode && cameras.indexOf(mmdCamNode) < 0) cameras.push(mmdCamNode);
+  return cameras;
 }
 
 function reattachPipelineCamera() {
@@ -233,10 +483,48 @@ function reattachPipelineCamera() {
   }
 }
 
+function runEffectDisposers() {
+  for (var i = 0; i < effectDisposers.length; i++) {
+    try { effectDisposers[i](); } catch (e) { appendLog('effect dispose error: ' + (e && e.message ? e.message : String(e))); }
+  }
+  effectDisposers = [];
+}
+
+function exposeFilesToScene() {
+  if (!scene) return;
+  scene.metadata = scene.metadata || {};
+  var map = {};
+  for (var i = 0; i < folderFiles.length; i++) {
+    var e = folderFiles[i];
+    map[baseOf(e.path).toLowerCase()] = e.file;
+    map[normPath(e.path).toLowerCase()] = e.file;
+  }
+  scene.metadata.files = map;
+}
+
+function applyEffectCode(code) {
+  runEffectDisposers();
+  if (!code || !code.trim()) return;
+  exposeFilesToScene();
+  try {
+    var fn = new Function('scene', 'engine', 'activeCamera', 'mmdRuntime', 'characters', 'BABYLON', 'BABYLONMMD', 'onDispose', code);
+    fn(scene, engine, scene ? scene.activeCamera : null, mmdRuntime, characters, BABYLON, BABYLONMMD, function (d) { if (typeof d === 'function') effectDisposers.push(d); });
+  } catch (e) {
+    appendLog('effect error: ' + (e && e.message ? e.message : String(e)) + (e && e.stack ? '\n' + e.stack : ''));
+  }
+}
+
+function clearEffectCode() {
+  runEffectDisposers();
+  appliedEffectCode = '';
+}
+
 /* ====== Settings ====== */
 function selectedModeOn(id, fallback) { var v = el(id); return v ? v.value === 'on' : fallback; }
 function floorEnabled() { return selectedModeOn('floorMode', true); }
 function fpsEnabled() { return selectedModeOn('fpsMode', true); }
+function selfShadowEnabled() { return selectedModeOn('selfShadowMode', false); }
+function normalShadowEnabled() { return selectedModeOn('normalShadowMode', false); }
 function selectedFloat(id, fallback) { var v = el(id); var n = v ? parseFloat(v.value) : fallback; return n >= 0 ? n : fallback; }
 function currentAmbientLight() { return selectedFloat('ambientLightLevel', 0.7); }
 function currentDirectionalLight() { return selectedFloat('directionalLightLevel', 0.6); }
@@ -244,23 +532,272 @@ function currentPlaybackSpeed() { var v = parseFloat((el('playbackSpeed') || {})
 function currentAudioVolume() { var v = parseFloat((el('audioVolume') || {}).value); return isFinite(v) ? Math.max(0, Math.min(1, v)) : 1; }
 function currentPixelRatio() { var v = (el('pixelRatio') || {}).value; if (v === 'device') return window.devicePixelRatio || 1; var n = parseFloat(v); return n > 0 ? n : 1; }
 
-function applyBackground() {
+function currentBackgroundColor3() {
   var hex = (el('backgroundColor') || {}).value || '#262b31';
   var r = parseInt(hex.slice(1, 3), 16) / 255;
   var g = parseInt(hex.slice(3, 5), 16) / 255;
   var b = parseInt(hex.slice(5, 7), 16) / 255;
-  if (scene) scene.clearColor = new BABYLON.Color4(r, g, b, 1.0);
+  return new BABYLON.Color3(r, g, b);
+}
+
+function applyBackground() {
+  var c = currentBackgroundColor3();
+  if (scene) scene.clearColor = new BABYLON.Color4(c.r, c.g, c.b, 1.0);
+  updateShadowGroundMaterialColor();
+}
+
+function ensureShadowGenerator() {
+  if (!shadowGenerator && dir) {
+    shadowGenerator = new BABYLON.ShadowGenerator(1024, dir);
+    shadowGenerator.useBlurExponentialShadowMap = true;
+    shadowGenerator.blurKernel = 16;
+    shadowGenerator.setDarkness(0.75);
+  }
+  return shadowGenerator;
+}
+
+function updateShadowGroundMaterialColor() {
+  if (!shadowGround || !shadowGround.material) return;
+  var c = currentBackgroundColor3();
+  var mat = shadowGround.material;
+  if ('primaryColor' in mat && mat.primaryColor && mat.primaryColor.copyFrom) mat.primaryColor.copyFrom(c);
+  if ('diffuseColor' in mat && mat.diffuseColor && mat.diffuseColor.copyFrom) mat.diffuseColor.copyFrom(c);
+  if ('ambientColor' in mat && mat.ambientColor && mat.ambientColor.copyFrom) mat.ambientColor.copyFrom(c);
+  if ('reflectionColor' in mat && mat.reflectionColor && mat.reflectionColor.copyFrom) mat.reflectionColor.copyFrom(c);
+}
+
+function ensureShadowGround() {
+  if (!shadowGround && scene) {
+    shadowGround = BABYLON.MeshBuilder.CreateGround('shadowGround', { width: 200, height: 200 }, scene);
+    shadowGround.position.y = -0.02;
+    shadowGround.isPickable = false;
+    shadowGround.receiveShadows = true;
+
+    var mat;
+    if (BABYLON.BackgroundMaterial) {
+      mat = new BABYLON.BackgroundMaterial('shadowGroundMat', scene);
+      mat.shadowOnly = true;
+      mat.shadowLevel = 0.65;
+      mat.specularColor = new BABYLON.Color3(0, 0, 0);
+    } else {
+      mat = new BABYLON.StandardMaterial('shadowGroundMat', scene);
+      mat.specularColor = new BABYLON.Color3(0, 0, 0);
+      mat.alpha = 1;
+    }
+    shadowGround.material = mat;
+    updateShadowGroundMaterialColor();
+  }
+  return shadowGround;
+}
+
+function forEachCharacterMesh(callback) {
+  for (var i = 0; i < characters.length; i++) {
+    var meshes = characters[i].container ? characters[i].container.meshes : [];
+    for (var j = 0; j < meshes.length; j++) {
+      var mesh = meshes[j];
+      if (mesh && mesh.getTotalVertices && mesh.getTotalVertices() > 0) callback(mesh, characters[i]);
+    }
+  }
+}
+
+function collectCharacterMeshes(ch) {
+  var out = [];
+  var meshes = ch && ch.container ? ch.container.meshes : [];
+  for (var i = 0; i < meshes.length; i++) {
+    var mesh = meshes[i];
+    if (mesh && mesh.getTotalVertices && mesh.getTotalVertices() > 0) out.push(mesh);
+  }
+  return out;
+}
+
+function isRealShadowMesh(mesh) {
+  if (!mesh || mesh === shadowGround || mesh === grid) return false;
+  if (mesh.metadata && mesh.metadata.forceContactShadow) return false;
+  return !!mesh.getTotalVertices && mesh.getTotalVertices() > 0;
+}
+
+function ensureForcedGroundShadowMaterial() {
+  if (forcedGroundShadowMaterial || !scene) return forcedGroundShadowMaterial;
+  forcedGroundShadowTexture = new BABYLON.DynamicTexture('forcedGroundShadowTex', { width: 512, height: 512 }, scene, true);
+  forcedGroundShadowTexture.hasAlpha = true;
+  var ctx = forcedGroundShadowTexture.getContext();
+  ctx.clearRect(0, 0, 512, 512);
+  var grad = ctx.createRadialGradient(256, 256, 8, 256, 256, 248);
+  grad.addColorStop(0.0, 'rgba(0,0,0,0.62)');
+  grad.addColorStop(0.28, 'rgba(0,0,0,0.42)');
+  grad.addColorStop(0.62, 'rgba(0,0,0,0.16)');
+  grad.addColorStop(1.0, 'rgba(0,0,0,0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+  forcedGroundShadowTexture.update(false);
+
+  forcedGroundShadowMaterial = new BABYLON.StandardMaterial('forcedGroundShadowMat', scene);
+  forcedGroundShadowMaterial.diffuseTexture = forcedGroundShadowTexture;
+  forcedGroundShadowMaterial.opacityTexture = forcedGroundShadowTexture;
+  forcedGroundShadowMaterial.useAlphaFromDiffuseTexture = true;
+  forcedGroundShadowMaterial.diffuseColor = new BABYLON.Color3(0, 0, 0);
+  forcedGroundShadowMaterial.emissiveColor = new BABYLON.Color3(0, 0, 0);
+  forcedGroundShadowMaterial.specularColor = new BABYLON.Color3(0, 0, 0);
+  forcedGroundShadowMaterial.disableLighting = true;
+  forcedGroundShadowMaterial.alpha = 0.82;
+  forcedGroundShadowMaterial.backFaceCulling = false;
+  forcedGroundShadowMaterial.zOffset = -3;
+  if (BABYLON.Material && BABYLON.Material.MATERIAL_ALPHABLEND != null) forcedGroundShadowMaterial.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+  return forcedGroundShadowMaterial;
+}
+
+function ensureForcedGroundShadow(ch) {
+  if (!ch || !scene) return null;
+  var key = String(ch.id);
+  if (forcedGroundShadows[key]) return forcedGroundShadows[key];
+  var mesh = BABYLON.MeshBuilder.CreateGround('forcedGroundShadow_' + key, { width: 1, height: 1, subdivisions: 1 }, scene);
+  mesh.isPickable = false;
+  mesh.receiveShadows = false;
+  mesh.alwaysSelectAsActiveMesh = true;
+  mesh.renderingGroupId = 3;
+  mesh.metadata = mesh.metadata || {};
+  mesh.metadata.forceContactShadow = true;
+  mesh.material = ensureForcedGroundShadowMaterial();
+  mesh.isVisible = false;
+  forcedGroundShadows[key] = mesh;
+  return mesh;
+}
+
+function characterWorldBounds(ch) {
+  var meshes = collectCharacterMeshes(ch);
+  if (!meshes.length) return null;
+  var min = new BABYLON.Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+  var max = new BABYLON.Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
+  for (var i = 0; i < meshes.length; i++) {
+    var mesh = meshes[i];
+    if (!mesh || !mesh.isEnabled() || !mesh.isVisible) continue;
+    mesh.computeWorldMatrix(true);
+    var box = mesh.getBoundingInfo().boundingBox;
+    var bmin = box.minimumWorld;
+    var bmax = box.maximumWorld;
+    min.x = Math.min(min.x, bmin.x);
+    min.y = Math.min(min.y, bmin.y);
+    min.z = Math.min(min.z, bmin.z);
+    max.x = Math.max(max.x, bmax.x);
+    max.y = Math.max(max.y, bmax.y);
+    max.z = Math.max(max.z, bmax.z);
+  }
+  if (!isFinite(min.x) || !isFinite(max.x)) return null;
+  return { min: min, max: max };
+}
+
+function isStageLikeBounds(bounds) {
+  if (!bounds) return true;
+  var w = bounds.max.x - bounds.min.x;
+  var h = bounds.max.y - bounds.min.y;
+  var d = bounds.max.z - bounds.min.z;
+  return w > 70 || d > 70 || h > 55;
+}
+
+function hideUnusedForcedGroundShadows(used) {
+  for (var key in forcedGroundShadows) {
+    if (!used[key]) forcedGroundShadows[key].isVisible = false;
+  }
+}
+
+function updateForcedGroundShadows() {
+  var used = {};
+  if (!normalShadowEnabled()) {
+    hideUnusedForcedGroundShadows(used);
+    return;
+  }
+  for (var i = 0; i < characters.length; i++) {
+    var ch = characters[i];
+    var bounds = characterWorldBounds(ch);
+    if (!bounds || isStageLikeBounds(bounds)) continue;
+    var mesh = ensureForcedGroundShadow(ch);
+    if (!mesh) continue;
+    var w = Math.max(0.7, bounds.max.x - bounds.min.x);
+    var d = Math.max(0.7, bounds.max.z - bounds.min.z);
+    var h = Math.max(0.7, bounds.max.y - bounds.min.y);
+    mesh.position.x = (bounds.min.x + bounds.max.x) * 0.5;
+    mesh.position.y = bounds.min.y + 0.12;
+    mesh.position.z = (bounds.min.z + bounds.max.z) * 0.5;
+    mesh.scaling.x = Math.max(w * 1.55, h * 0.30, 1.2);
+    mesh.scaling.z = Math.max(d * 1.55, h * 0.22, 1.0);
+    mesh.rotation.x = 0;
+    mesh.rotation.y = 0;
+    mesh.rotation.z = 0;
+    mesh.isVisible = true;
+    used[String(ch.id)] = true;
+  }
+  hideUnusedForcedGroundShadows(used);
+}
+
+function ensureForcedGroundShadowUpdater() {
+  if (!scene || forcedGroundShadowObserver) return;
+  forcedGroundShadowObserver = scene.onBeforeRenderObservable.add(updateForcedGroundShadows);
+}
+
+function applyShadows() {
+  if (!scene || !dir) return;
+  var selfOn = selfShadowEnabled();
+  var normalOn = normalShadowEnabled();
+  var anyOn = selfOn || normalOn;
+  scene.shadowsEnabled = anyOn;
+  var ground = ensureShadowGround();
+  var generator = ensureShadowGenerator();
+  var map = generator ? generator.getShadowMap() : null;
+  if (generator) {
+    generator.bias = 0.0005;
+    generator.normalBias = 0.02;
+    generator.setDarkness(0.85);
+  }
+  if (map) map.renderList = [];
+  var selected = currentChar();
+  var casterMeshes = normalOn && selected ? collectCharacterMeshes(selected) : [];
+  if (normalOn && casterMeshes.length === 0) {
+    forEachCharacterMesh(function (mesh) { casterMeshes.push(mesh); });
+  }
+  for (var i = 0; map && i < casterMeshes.length; i++) map.renderList.push(casterMeshes[i]);
+
+  var hasPmxReceiver = false;
+  for (var s = 0; s < scene.meshes.length; s++) {
+    var mesh = scene.meshes[s];
+    if (!isRealShadowMesh(mesh)) continue;
+    var isCaster = casterMeshes.indexOf(mesh) >= 0;
+    if (normalOn && !isCaster) {
+      mesh.receiveShadows = true;
+      hasPmxReceiver = true;
+    } else {
+      mesh.receiveShadows = selfOn && isCaster;
+    }
+  }
+  if (ground) {
+    ground.receiveShadows = normalOn;
+    ground.isVisible = normalOn && !hasPmxReceiver;
+  }
+  if (!anyOn && map) map.renderList = [];
+  ensureForcedGroundShadowUpdater();
+  updateForcedGroundShadows();
 }
 
 function applyView() {
   if (grid) grid.isVisible = floorEnabled();
   el('fps').style.display = fpsEnabled() ? 'block' : 'none';
   applyBackground();
+  applyShadows();
+}
+
+function currentDirRotX() { var v = document.getElementById('dirRotX'); return v ? (parseFloat(v.value) || 0) : 0; }
+function currentDirRotY() { var v = document.getElementById('dirRotY'); return v ? (parseFloat(v.value) || 0) : 0; }
+function currentDirRotZ() { var v = document.getElementById('dirRotZ'); return v ? (parseFloat(v.value) || 0) : 0; }
+function applyDirRotation() {
+  if (!dir) return;
+  var rad = Math.PI / 180;
+  var mat = BABYLON.Matrix.RotationYawPitchRoll(currentDirRotY() * rad, currentDirRotX() * rad, currentDirRotZ() * rad);
+  dir.direction = BABYLON.Vector3.TransformNormal(new BABYLON.Vector3(0, -1, 0), mat);
 }
 
 function applyLighting() {
   if (hemi) hemi.intensity = currentAmbientLight();
   if (dir) dir.intensity = currentDirectionalLight();
+  applyDirRotation();
 }
 
 function applyPixelRatio() {
@@ -678,11 +1215,13 @@ async function addSelectedFiles(files) {
     entries.push({ file: file, path: file.webkitRelativePath || file.name, name: file.name, url: '' });
   }
   if (entries.length === 0) return;
-  clearScene();
-  revoke(runtimeUrls);
+  var prevCamEntry = (cameraSel !== 'free' && cameraEntries[cameraSel]) ? cameraEntries[cameraSel] : null;
+  var prevAudioEntry = (audioSel >= 0 && audioEntries[audioSel]) ? audioEntries[audioSel] : null;
   mergeFiles(entries);
   if (!folderName) folderName = 'Folder';
   await inspectFolder(folderFiles);
+  if (prevCamEntry) { var ci = cameraEntries.indexOf(prevCamEntry); if (ci >= 0) cameraSel = ci; }
+  if (prevAudioEntry) { var ai = audioEntries.indexOf(prevAudioEntry); if (ai >= 0) audioSel = ai; }
   renderAll();
   setStatus(modelEntries.length > 0 ? '' : 'No PMX found');
 }
@@ -701,40 +1240,15 @@ async function addZipFile(file) {
     entries.push({ file: new File([blob], baseOf(zipEntry.name), { type: blob.type }), path: zipEntry.name, name: baseOf(zipEntry.name), url: '' });
   }
   if (entries.length === 0) return;
-  clearScene();
-  revoke(runtimeUrls);
+  var prevCamEntry = (cameraSel !== 'free' && cameraEntries[cameraSel]) ? cameraEntries[cameraSel] : null;
+  var prevAudioEntry = (audioSel >= 0 && audioEntries[audioSel]) ? audioEntries[audioSel] : null;
   mergeFiles(entries);
   if (!folderName) folderName = file.name;
   await inspectFolder(folderFiles);
+  if (prevCamEntry) { var ci = cameraEntries.indexOf(prevCamEntry); if (ci >= 0) cameraSel = ci; }
+  if (prevAudioEntry) { var ai = audioEntries.indexOf(prevAudioEntry); if (ai >= 0) audioSel = ai; }
   renderAll();
   setStatus(modelEntries.length > 0 ? '' : 'No PMX found');
-}
-
-async function selectFolder() {
-  if (!window.showDirectoryPicker) { el('fileInput').click(); return; }
-  try {
-    var dir = await window.showDirectoryPicker({ mode: 'read' });
-    clearScene();
-    revoke(runtimeUrls);
-    resetDetected();
-    folderName = dir.name;
-    await walkDirectory(dir, '', folderFiles);
-    await inspectFolder(folderFiles);
-    renderAll();
-    setStatus(modelEntries.length > 0 ? '' : 'No PMX found');
-  } catch (e) { setStatus(''); }
-}
-
-async function walkDirectory(handle, prefix, out) {
-  for await (var item of handle.values()) {
-    var path = prefix ? prefix + '/' + item.name : item.name;
-    if (item.kind === 'file') {
-      var file = await item.getFile();
-      out.push({ file: file, path: path, name: item.name, url: '' });
-    } else if (item.kind === 'directory') {
-      await walkDirectory(item, path, out);
-    }
-  }
 }
 
 function resetDetected() {
@@ -747,6 +1261,131 @@ function resetDetected() {
 function currentChar() {
   for (var i = 0; i < characters.length; i++) if (characters[i].id === selectedCharId) return characters[i];
   return null;
+}
+
+function disposeMoveGizmos() {
+  if (moveGizmo) {
+    try { moveGizmo.attachedNode = null; } catch (e) {}
+    try { moveGizmo.attachedMesh = null; } catch (e) {}
+    try { moveGizmo.isEnabled = false; } catch (e) {}
+    try { moveGizmo.dispose(); } catch (e) {}
+    moveGizmo = null;
+  }
+  if (rotateGizmo) {
+    try { rotateGizmo.attachedNode = null; } catch (e) {}
+    try { rotateGizmo.attachedMesh = null; } catch (e) {}
+    try { rotateGizmo.isEnabled = false; } catch (e) {}
+    try { rotateGizmo.dispose(); } catch (e) {}
+    rotateGizmo = null;
+  }
+  if (moveGizmoLayer) {
+    try { moveGizmoLayer.dispose(); } catch (e) {}
+    moveGizmoLayer = null;
+  }
+  moveGizmoDragBound = false;
+  rotateGizmoDragBound = false;
+}
+
+function ensureMoveGizmos() {
+  if (!scene || !BABYLON.UtilityLayerRenderer || !BABYLON.PositionGizmo || !BABYLON.RotationGizmo) return null;
+  if (!moveGizmoLayer) moveGizmoLayer = new BABYLON.UtilityLayerRenderer(scene);
+  if (!moveGizmo) {
+    moveGizmo = new BABYLON.PositionGizmo(moveGizmoLayer);
+    moveGizmo.scaleRatio = 1.1;
+    moveGizmo.updateGizmoRotationToMatchAttachedMesh = false;
+    moveGizmo.isEnabled = false;
+  }
+  if (!rotateGizmo) {
+    rotateGizmo = new BABYLON.RotationGizmo(moveGizmoLayer);
+    rotateGizmo.scaleRatio = 1.25;
+    rotateGizmo.updateGizmoRotationToMatchAttachedMesh = false;
+    rotateGizmo.isEnabled = false;
+  }
+  if (moveGizmo.onDragObservable && !moveGizmoDragBound) {
+    moveGizmo.onDragObservable.add(syncTransformInputs);
+    moveGizmoDragBound = true;
+  }
+  if (rotateGizmo.onDragObservable && !rotateGizmoDragBound) {
+    rotateGizmo.onDragObservable.add(syncTransformInputs);
+    rotateGizmoDragBound = true;
+  }
+  return true;
+}
+
+function attachMoveGizmoTo(ch) {
+  var node = ch && ch.moveRoot ? ch.moveRoot : null;
+  var on = !!node && gizmoModeEnabled();
+  if (!on) {
+    disposeMoveGizmos();
+    return;
+  }
+  var ok = ensureMoveGizmos();
+  if (!ok) return;
+  moveGizmo.attachedNode = node;
+  rotateGizmo.attachedNode = node;
+  moveGizmo.isEnabled = true;
+  rotateGizmo.isEnabled = true;
+}
+
+function updateMoveGizmo() {
+  attachMoveGizmoTo(currentChar());
+  syncTransformInputs();
+}
+
+function gizmoModeEnabled() { var v = el('gizmoMode'); return v ? v.value === 'on' : true; }
+
+function applyGizmoMode() { updateMoveGizmo(); }
+
+function syncTransformInputs() {
+  var ch = currentChar();
+  var ids = ['posX', 'posY', 'posZ', 'rotX', 'rotY', 'rotZ'];
+  if (!ch || !ch.moveRoot) {
+    for (var i = 0; i < ids.length; i++) { var n = el(ids[i]); if (n) n.value = '0'; }
+    return;
+  }
+  var p = ch.moveRoot.position, r = ch.moveRoot.rotation, deg = 180 / Math.PI;
+  if (el('posX')) el('posX').value = p.x.toFixed(2);
+  if (el('posY')) el('posY').value = p.y.toFixed(2);
+  if (el('posZ')) el('posZ').value = p.z.toFixed(2);
+  if (el('rotX')) el('rotX').value = (r.x * deg).toFixed(1);
+  if (el('rotY')) el('rotY').value = (r.y * deg).toFixed(1);
+  if (el('rotZ')) el('rotZ').value = (r.z * deg).toFixed(1);
+}
+
+function applyTransformInputs() {
+  var ch = currentChar();
+  if (!ch || !ch.moveRoot) return;
+  var rad = Math.PI / 180;
+  var px = parseFloat((el('posX') || {}).value); if (!isFinite(px)) px = ch.moveRoot.position.x;
+  var py = parseFloat((el('posY') || {}).value); if (!isFinite(py)) py = ch.moveRoot.position.y;
+  var pz = parseFloat((el('posZ') || {}).value); if (!isFinite(pz)) pz = ch.moveRoot.position.z;
+  var rx = parseFloat((el('rotX') || {}).value); if (!isFinite(rx)) rx = ch.moveRoot.rotation.x / rad;
+  var ry = parseFloat((el('rotY') || {}).value); if (!isFinite(ry)) ry = ch.moveRoot.rotation.y / rad;
+  var rz = parseFloat((el('rotZ') || {}).value); if (!isFinite(rz)) rz = ch.moveRoot.rotation.z / rad;
+  ch.moveRoot.position.set(px, py, pz);
+  ch.moveRoot.rotation.set(rx * rad, ry * rad, rz * rad);
+}
+
+function createMoveRootForCharacter(ch) {
+  var root = new BABYLON.TransformNode('characterMoveRoot_' + ch.id, scene);
+  var nodes = [];
+  if (ch.container && ch.container.transformNodes) {
+    for (var i = 0; i < ch.container.transformNodes.length; i++) nodes.push(ch.container.transformNodes[i]);
+  }
+  if (ch.container && ch.container.meshes) {
+    for (var j = 0; j < ch.container.meshes.length; j++) nodes.push(ch.container.meshes[j]);
+  }
+  var roots = [];
+  for (var k = 0; k < nodes.length; k++) {
+    var node = nodes[k];
+    if (node && node !== root && !node.parent) roots.push(node);
+  }
+  if (roots.length === 0 && ch.mesh) roots.push(ch.mesh);
+  for (var r = 0; r < roots.length; r++) {
+    if (roots[r].setParent) roots[r].setParent(root);
+    else roots[r].parent = root;
+  }
+  ch.moveRoot = root;
 }
 
 /* ====== Build reference files for babylon-mmd ====== */
@@ -784,13 +1423,19 @@ function clearScene() {
   cameraSel = 'free';
   scene.activeCamera = arcCamera;
   arcCamera.attachControl(canvas, true);
+  attachMoveGizmoTo(null);
   for (var i = 0; i < characters.length; i++) {
     var c = characters[i];
     if (c.model && mmdRuntime) { try { mmdRuntime.destroyMmdModel(c.model); } catch (e) {} }
     if (c.container) { try { c.container.dispose(); } catch (e) {} }
+    if (c.moveRoot) { c.moveRoot.dispose(); c.moveRoot = null; }
   }
   characters = []; selectedCharId = -1; charSeq = 0;
+  applyShadows();
   if (mmdRuntime) { mmdRuntime.dispose(scene); mmdRuntime = null; }
+  if (modelFpsLimiterObserver && scene) scene.onBeforeRenderObservable.remove(modelFpsLimiterObserver);
+  modelFpsLimiterObserver = null;
+  clearModelFpsLimiterState();
   reattachPipelineCamera();
   ready = false;
   playing = false;
@@ -812,6 +1457,7 @@ function ensureRuntime() {
   var mmdPhysics = physicsReady ? new BABYLONMMD.MmdBulletPhysics(physicsRuntime) : null;
   mmdRuntime = new BABYLONMMD.MmdRuntime(scene, mmdPhysics);
   mmdRuntime.register(scene);
+  ensureModelFpsLimiter();
   mmdRuntime.timeScale = currentPlaybackSpeed();
   mmdRuntime.onAnimationTickObservable.add(function () {
     if (!draggingSeek) {
@@ -860,11 +1506,15 @@ async function addCharacter(entry) {
     };
     if (BABYLONMMD.MmdStandardMaterialProxy) modelOpts.materialProxyConstructor = BABYLONMMD.MmdStandardMaterialProxy;
     var model = mmdRuntime.createMmdModel(mesh, modelOpts);
-    var ch = { id: ++charSeq, entry: entry, container: result, model: model, mesh: mesh, motions: [], animHandle: null };
+    var ch = { id: ++charSeq, entry: entry, container: result, model: model, mesh: mesh, motions: [], animHandle: null, moveRoot: null, toonMode: 'off', flatToonBrightness: 1 };
+    createMoveRootForCharacter(ch);
     characters.push(ch);
     selectedCharId = ch.id;
+    updateMoveGizmo();
     applyIkModeTo(ch);
     applyPhysicsModeTo(ch);
+    applyToonModeToCharacter(ch);
+    applyShadows();
     if (characters.length === 1 && cameraSel === 'free') fitCamera(result.meshes);
     refreshDuration();
     updateReady();
@@ -881,10 +1531,18 @@ function removeCharacter(id) {
   for (var i = 0; i < characters.length; i++) if (characters[i].id === id) { idx = i; break; }
   if (idx < 0) return;
   var ch = characters[idx];
+  if (selectedCharId === id) attachMoveGizmoTo(null);
   if (ch.model && mmdRuntime) { try { mmdRuntime.destroyMmdModel(ch.model); } catch (e) {} }
   if (ch.container) { try { ch.container.dispose(); } catch (e) {} }
+  if (ch.moveRoot) { ch.moveRoot.dispose(); ch.moveRoot = null; }
+  if (forcedGroundShadows[String(ch.id)]) {
+    try { forcedGroundShadows[String(ch.id)].dispose(); } catch (e) {}
+    delete forcedGroundShadows[String(ch.id)];
+  }
   characters.splice(idx, 1);
+  applyShadows();
   if (selectedCharId === id) selectedCharId = characters.length > 0 ? characters[0].id : -1;
+  updateMoveGizmo();
   refreshDuration();
   updateReady();
   renderAll();
@@ -1039,7 +1697,15 @@ function refreshSeekRange() {
   updateSeekUI(true);
 }
 
-function updatePlayBtn() { el('play').textContent = playing ? 'Pause' : 'Play'; }
+function updatePlayBtn() {
+  var btn = el('play');
+  if (!btn) return;
+  var img = btn.querySelector('img');
+  if (!img) { img = document.createElement('img'); btn.textContent = ''; btn.appendChild(img); }
+  img.src = playing ? 'img/pause.svg' : 'img/play.svg';
+  img.alt = playing ? 'Pause' : 'Play';
+  btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+}
 
 function updateSeekUI(force) {
   var fr = Math.round(currentFrameTime);
@@ -1055,6 +1721,7 @@ async function seekToFrame(fr) {
   currentFrameTime = fr;
   updateSeekUI(true);
   await mmdRuntime.seekAnimation(fr, true);
+  clearModelFpsLimiterState();
   if (jumped && physicsReady && physicsModeEnabled()) {
     initAllPhysics();
   }
@@ -1065,6 +1732,7 @@ async function togglePlay() {
   if (playing) {
     mmdRuntime.pauseAnimation();
   } else {
+    clearModelFpsLimiterState();
     await mmdRuntime.playAnimation();
   }
 }
@@ -1116,7 +1784,7 @@ function renderCharacters() {
       var head = document.createElement('div'); head.className = 'charHead';
       var sel = document.createElement('button');
       sel.type = 'button'; sel.className = 'charName'; sel.textContent = ch.entry.name;
-      sel.addEventListener('click', function () { selectedCharId = ch.id; renderCharacters(); });
+      sel.addEventListener('click', function () { selectedCharId = ch.id; updateMoveGizmo(); applyShadows(); renderCharacters(); });
       var rem = document.createElement('button');
       rem.type = 'button'; rem.className = 'charRemove'; rem.textContent = '×';
       rem.addEventListener('click', function () { removeCharacter(ch.id); });
@@ -1143,6 +1811,7 @@ function renderCharacters() {
       box.appendChild(wrap);
     })(characters[i]);
   }
+  syncCharacterToonModeControl();
 }
 
 function renderMotionPool() {
@@ -1160,7 +1829,7 @@ function renderMotionPool() {
 
 function renderCameraSelect() {
   var s = el('cameraSelect'); if (!s) return; s.innerHTML = '';
-  var o0 = document.createElement('option'); o0.value = 'free'; o0.textContent = 'Free'; s.appendChild(o0);
+  var o0 = document.createElement('option'); o0.value = 'free'; o0.textContent = 'None'; s.appendChild(o0);
   for (var i = 0; i < cameraEntries.length; i++) {
     var o = document.createElement('option'); o.value = String(i); o.textContent = cameraEntries[i].name; s.appendChild(o);
   }
@@ -1196,7 +1865,9 @@ function writeStudioRecord(record) {
   return openStudioDb().then(function (db) {
     return new Promise(function (resolve, reject) {
       var tx = db.transaction(STUDIO_STORE, 'readwrite');
-      tx.objectStore(STUDIO_STORE).put(record, STUDIO_KEY);
+      var store = tx.objectStore(STUDIO_STORE);
+      store.clear();
+      store.put(record, STUDIO_KEY);
       tx.oncomplete = function () { db.close(); resolve(); };
       tx.onerror = function () { db.close(); reject(tx.error); };
     });
@@ -1216,43 +1887,168 @@ function readStudioRecord() {
 }
 
 async function saveStudio() {
-  if (folderFiles.length === 0) { statusEl.textContent = 'No files'; return; }
+  if (folderFiles.length === 0) { setStatus('No files'); return; }
   try {
     await writeStudioRecord({
-      folderName: folderName || 'Studio',
-      cameraFree: cameraSel === 'free',
-      cameraPath: (cameraSel !== 'free' && cameraEntries[cameraSel]) ? normPath(cameraEntries[cameraSel].path) : '',
-      audioPath: (audioSel >= 0 && audioEntries[audioSel]) ? normPath(audioEntries[audioSel].path) : '',
-      entries: folderFiles.map(function (e) { return { file: e.file, path: e.path, name: e.name }; })
+      entries: folderFiles.map(function (e) { return { file: e.file, path: e.path, name: e.name }; }),
+      settings: collectSettings()
     });
-    statusEl.textContent = 'Saved';
-  } catch (e) { statusEl.textContent = 'Save failed'; }
+    setStatus('Saved');
+  } catch (e) { setStatus('Save failed'); }
 }
 
 async function restoreStudio() {
   var record;
-  try { record = await readStudioRecord(); } catch (e) { statusEl.textContent = 'Restore failed'; return; }
-  if (!record || !record.entries || record.entries.length === 0) { statusEl.textContent = 'No save'; return; }
+  try { record = await readStudioRecord(); } catch (e) { setStatus('Restore failed'); return; }
+  if (!record || !record.entries || record.entries.length === 0) { setStatus('No save'); return; }
   clearScene(); revoke(runtimeUrls); resetDetected();
-  folderName = record.folderName || 'Studio';
+  clearEffectCode();
+  var codeBoxReset = el('codeBox'); if (codeBoxReset) codeBoxReset.value = '';
+  var settings = record.settings || {};
+  folderName = settings.folderName || 'Studio';
   for (var i = 0; i < record.entries.length; i++) {
     var rec = record.entries[i];
     if (rec.file) folderFiles.push({ file: rec.file, path: rec.path, name: rec.name, url: '' });
   }
   await inspectFolder(folderFiles);
   renderAll();
-  if (record.cameraFree === false && record.cameraPath) {
+  await applySettings(settings);
+  setStatus('Restored');
+}
+
+function collectControlValues() {
+  var out = {};
+  for (var i = 0; i < SETTING_IDS.length; i++) {
+    var node = el(SETTING_IDS[i]);
+    if (node) out[SETTING_IDS[i]] = node.value;
+  }
+  return out;
+}
+
+function collectSettings() {
+  return {
+    folderName: folderName || 'Studio',
+    controls: collectControlValues(),
+    cameraFree: cameraSel === 'free',
+    cameraPath: (cameraSel !== 'free' && cameraEntries[cameraSel]) ? normPath(cameraEntries[cameraSel].path) : '',
+    audioPath: (audioSel >= 0 && audioEntries[audioSel]) ? normPath(audioEntries[audioSel].path) : '',
+    characters: characters.map(function (c) {
+      return {
+        modelPath: normPath(c.entry.path),
+        position: c.moveRoot ? { x: c.moveRoot.position.x, y: c.moveRoot.position.y, z: c.moveRoot.position.z } : null,
+        rotation: c.moveRoot ? { x: c.moveRoot.rotation.x, y: c.moveRoot.rotation.y, z: c.moveRoot.rotation.z } : null,
+        toonMode: c.toonMode || 'off',
+        flatToonBrightness: clampFlatToonBrightness(c.flatToonBrightness == null ? 1 : c.flatToonBrightness),
+        motions: c.motions.map(function (m) { return normPath(m.path); }),
+        selected: c.id === selectedCharId
+      };
+    }),
+    effectCode: appliedEffectCode
+  };
+}
+
+function applyControlValues(controls) {
+  if (!controls) return;
+  for (var id in controls) {
+    if (!controls.hasOwnProperty(id)) continue;
+    var node = el(id);
+    if (node) node.value = controls[id];
+    var range = el(id + 'Range');
+    if (range) range.value = controls[id];
+  }
+}
+
+async function applySettings(s) {
+  if (!s) return;
+  applyControlValues(s.controls);
+  applyView();
+  applyLighting();
+  applyPixelRatio();
+  applyPlaybackSpeed();
+  applyAudioVolume();
+  applyModelFpsLimit();
+  applyPhysicsStep();
+  applyEvalType();
+  applyUseDelta();
+  if (s.characters && s.characters.length > 0) {
+    for (var ce = 0; ce < s.characters.length; ce++) {
+      var crec = s.characters[ce];
+      var ment = filePathMap[crec.modelPath];
+      if (!ment) continue;
+      var beforeLen = characters.length;
+      await addCharacter(ment);
+      if (characters.length <= beforeLen) continue;
+      var ch = characters[characters.length - 1];
+      if (ch.moveRoot && crec.position) ch.moveRoot.position.set(crec.position.x, crec.position.y, crec.position.z);
+      if (ch.moveRoot && crec.rotation) ch.moveRoot.rotation.set(crec.rotation.x, crec.rotation.y, crec.rotation.z);
+      ch.toonMode = crec.toonMode || 'off';
+      ch.flatToonBrightness = clampFlatToonBrightness(crec.flatToonBrightness == null ? 1 : crec.flatToonBrightness);
+      applyToonModeToCharacter(ch);
+      if (crec.motions && crec.motions.length > 0) {
+        ch.motions = [];
+        for (var me = 0; me < crec.motions.length; me++) {
+          var ment2 = filePathMap[crec.motions[me]];
+          if (ment2) ch.motions.push(ment2);
+        }
+        await applyCharacterMotions(ch);
+      }
+      if (crec.selected) selectedCharId = ch.id;
+    }
+    updateMoveGizmo();
+  }
+  applyPhysicsMode();
+  applyIkMode();
+  if (s.cameraFree === false && s.cameraPath) {
     var ci = -1;
-    for (var i = 0; i < cameraEntries.length; i++) if (normPath(cameraEntries[i].path) === record.cameraPath) { ci = i; break; }
+    for (var i = 0; i < cameraEntries.length; i++) if (normPath(cameraEntries[i].path) === s.cameraPath) { ci = i; break; }
     if (ci >= 0) await setCamera(String(ci));
   }
-  if (record.audioPath) {
+  if (s.audioPath) {
     var ai = -1;
-    for (var i = 0; i < audioEntries.length; i++) if (normPath(audioEntries[i].path) === record.audioPath) { ai = i; break; }
+    for (var j = 0; j < audioEntries.length; j++) if (normPath(audioEntries[j].path) === s.audioPath) { ai = j; break; }
     if (ai >= 0) await setAudio(String(ai));
   }
-  renderCameraSelect(); renderAudioSelect();
-  statusEl.textContent = 'Restored';
+  applyGlow();
+  applyBloom();
+  applyDof();
+  renderCameraSelect();
+  renderAudioSelect();
+  renderAll();
+  if (s.effectCode) {
+    appliedEffectCode = s.effectCode;
+    var codeBox = el('codeBox'); if (codeBox) codeBox.value = appliedEffectCode;
+    applyEffectCode(appliedEffectCode);
+  } else {
+    clearEffectCode();
+    var codeBox2 = el('codeBox'); if (codeBox2) codeBox2.value = '';
+  }
+}
+
+function projectFileName() {
+  var d = new Date();
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  return 'mmd_project_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.json';
+}
+
+function exportProject() {
+  try {
+    var json = JSON.stringify(collectSettings(), null, 2);
+    downloadBlob(new Blob([json], { type: 'application/json' }), projectFileName());
+    setStatus('Exported');
+  } catch (e) { appendLog('export error: ' + (e && e.message ? e.message : String(e))); setStatus('Export failed'); }
+}
+
+async function importProject(file) {
+  setStatus('Loading');
+  try {
+    var text = await file.text();
+    var s = JSON.parse(text);
+    await applySettings(s);
+    setStatus('Imported');
+  } catch (e) {
+    appendLog('import error: ' + (e && e.message ? e.message : String(e)));
+    setStatus('Import failed');
+  }
 }
 
 /* ====== Settings panel ====== */
@@ -1287,7 +2083,6 @@ el('physicsToggle').addEventListener('click', function () { openMenu('physics');
 el('fxToggle').addEventListener('click', function () { openMenu('fx'); });
 el('renderToggle').addEventListener('click', function () { openMenu('render'); });
 
-el('folderBtn').addEventListener('click', selectFolder);
 el('fileBtn').addEventListener('click', function () { el('fileInput').click(); });
 el('zipBtn').addEventListener('click', function () { el('zipInput').click(); });
 el('fileInput').addEventListener('change', function (e) {
@@ -1298,8 +2093,14 @@ el('zipInput').addEventListener('change', function (e) {
 });
 el('cameraSelect').addEventListener('change', function (e) { setCamera(e.target.value); });
 el('audioSelect').addEventListener('change', function (e) { setAudio(e.target.value); });
+el('modelFpsLimit').addEventListener('change', applyModelFpsLimit);
+el('characterToonMode').addEventListener('change', applyCharacterToonMode);
+syncRangeNumber('flatToonBrightnessRange', 'flatToonBrightness', applyCharacterToonBrightness);
 el('studioSave').addEventListener('click', saveStudio);
 el('studioRestore').addEventListener('click', restoreStudio);
+el('projectExport').addEventListener('click', exportProject);
+el('projectImport').addEventListener('click', function () { el('projectImportInput').click(); });
+el('projectImportInput').addEventListener('change', function (e) { if (e.target.files[0]) importProject(e.target.files[0]); e.target.value = ''; });
 el('reset').addEventListener('click', function () { clearScene(); revoke(runtimeUrls); resetDetected(); renderAll(); setStatus(''); });
 
 el('play').addEventListener('click', togglePlay);
@@ -1313,9 +2114,14 @@ el('floorMode').addEventListener('change', applyView);
 el('physicsMode').addEventListener('change', applyPhysicsMode);
 el('backgroundColor').addEventListener('input', applyBackground);
 el('fpsMode').addEventListener('change', applyView);
+el('selfShadowMode').addEventListener('change', applyView);
+el('normalShadowMode').addEventListener('change', applyView);
 el('pixelRatio').addEventListener('change', applyPixelRatio);
 syncRangeNumber('ambientLightLevelRange', 'ambientLightLevel', applyLighting);
 syncRangeNumber('directionalLightLevelRange', 'directionalLightLevel', applyLighting);
+syncRangeNumber('dirRotXRange', 'dirRotX', applyDirRotation);
+syncRangeNumber('dirRotYRange', 'dirRotY', applyDirRotation);
+syncRangeNumber('dirRotZRange', 'dirRotZ', applyDirRotation);
 syncRangeNumber('playbackSpeedRange', 'playbackSpeed', applyPlaybackSpeed);
 syncRangeNumber('audioVolumeRange', 'audioVolume', applyAudioVolume);
 
@@ -1341,6 +2147,13 @@ syncRangeNumber('dofFocusRange', 'dofFocus', applyDof);
 syncRangeNumber('dofApertureRange', 'dofAperture', applyDof);
 syncRangeNumber('substepsRange', 'substeps', applyPhysicsStep);
 el('renderMp4').addEventListener('click', renderMp4H264);
+el('gizmoMode').addEventListener('change', applyGizmoMode);
+['posX', 'posY', 'posZ', 'rotX', 'rotY', 'rotZ'].forEach(function (id) {
+  var n = el(id); if (n) n.addEventListener('input', applyTransformInputs);
+});
+el('codeBtn').addEventListener('click', function () { el('codePanel').classList.toggle('open'); });
+el('codeApply').addEventListener('click', function () { appliedEffectCode = el('codeBox').value || ''; applyEffectCode(appliedEffectCode); });
+el('codeClear').addEventListener('click', function () { el('codeBox').value = ''; clearEffectCode(); });
 
 /* ====== Start ====== */
 init();
