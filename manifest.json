@@ -1,0 +1,16 @@
+{
+  "name": "PocketPMX",
+  "short_name": "PocketPMX",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#2D2D2D",
+  "theme_color": "#2D2D2D",
+  "icons": [
+    {
+      "src": "img/icon.png",
+      "sizes": "1000x1000",
+      "type": "image/png"
+    }
+  ]
+}
